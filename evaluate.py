@@ -22,13 +22,13 @@ def predict(audio, model):
         audio = np.pad(audio, [(0,0), (0, pad_back)], mode="constant", constant_values=0.0)
 
     target_outputs = audio.shape[1]
+    outputs = {key: np.zeros(audio.shape, np.float32) for key in model.instruments}
 
     # Pad mixture across time at beginning and end so that neural network can make prediction at the beginning and end of signal
     pad_front_context = model.shapes["output_start_frame"]
     pad_back_context = model.shapes["input_frames"] - model.shapes["output_end_frame"]
     audio = np.pad(audio, [(0,0), (pad_front_context, pad_back_context)], mode="constant", constant_values=0.0)
 
-    outputs = {}
     # Iterate over mixture magnitudes, fetch network prediction
     with torch.no_grad():
         for target_start_pos in range(0, target_outputs, model.shapes["output_frames"]):
@@ -43,10 +43,10 @@ def predict(audio, model):
 
             # Save predictions
             for key in curr_targets.keys():
-                outputs[key].append(curr_targets[key].squeeze(0).cpu().numpy())
+                outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets[key].squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)
-    outputs = {outputs[key][:,:expected_outputs] for key in outputs.keys()}
+    outputs = {key : outputs[key][:,:expected_outputs] for key in outputs.keys()}
 
     if return_mode == "pytorch":
         outputs = torch.from_numpy(outputs)
@@ -74,20 +74,10 @@ def predict_song(args, audio_path, model, instruments):
     # resample to model sampling rate
     mix_audio = utils.resample(mix_audio, mix_sr, args.sr)
 
-    source_preds = predict(mix_audio, 1, model)
+    sources = predict(mix_audio, model)
 
-    freqs_per_channel = ((args.fft_size // 2) + 1)
-    num_freqs = freqs_per_channel * args.channels
-
-    # Convert outputs to structured dictionary to distinguish between the sources
-    sources = {}
-    for i in range(len(instruments)):
-        key = instruments[i]
-        sources[key] = [source_preds[i*num_freqs+j*freqs_per_channel:i*num_freqs+ (j+1)*freqs_per_channel] for j in range(args.channels)]
-        sources[key] = np.concatenate(sources[key], axis=0)
-
-        # Resample back to mixture sampling rate in case we had model on different sampling rate
-        sources[key] = utils.resample(sources[key], args.sr, mix_sr)
+    # Resample back to mixture sampling rate in case we had model on different sampling rate
+    sources = {key : utils.resample(sources[key], args.sr, mix_sr) for key in sources.keys()}
 
     # In case we had to pad the mixture at the end, or we have a few samples too many due to inconsistent down- and upsamṕling, remove those samples from source prediction now
     for key in sources.keys():
@@ -126,7 +116,7 @@ def evaluate(args, dataset, model, instruments):
             pred_sources = np.stack([pred_sources[key].T for key in instruments])
 
             # Evaluate
-            SDR, ISR, SIR, SAR, _ = museval.metrics.bss_eval(target_sources, pred_sources, hop=0, window=np.Inf) #TODO windowing doesnt work
+            SDR, ISR, SIR, SAR, _ = museval.metrics.bss_eval(target_sources, pred_sources)
             song = {}
             for idx, name in enumerate(instruments):
                 song[name] = {"SDR" : SDR[idx], "ISR" : ISR[idx], "SIR" : SIR[idx], "SAR" : SAR[idx]}

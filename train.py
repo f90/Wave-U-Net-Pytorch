@@ -34,7 +34,7 @@ def validate(args, model, criterion, test_data):
             output = model(x)
 
             # Compute loss by stacking sources together in channel dimension
-            packed_output = torch.cat(output.values(), dim=1)
+            packed_output = torch.cat(list(output.values()), dim=1)
             loss = criterion(packed_output, target)
 
             total_loss += (1. / float(example_num + 1)) * (loss.item() - total_loss)
@@ -58,7 +58,7 @@ parser.add_argument('--dataset_dir', type=str, default="/mnt/windaten/Datasets/M
                     help='Dataset path')
 parser.add_argument('--snapshot_dir', type=str, default='snapshots/waveunet',
                     help='Folder to write checkpoints into')
-parser.add_argument('--load_full_model', type=str, default=None,
+parser.add_argument('--load_model', type=str, default=None,
                     help='Reload a previously trained model (whole task model)')
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='initial learning rate (default: 5e-4)')
@@ -129,10 +129,9 @@ state = {"step" : 0,
          "best_loss" : np.Inf}
 
 # LOAD MODEL CHECKPOINT IF DESIRED
-if args.load_full_model is not None:
-    assert (args.load_base_model is None)
-    print("Continuing training full model from checkpoint " + str(args.load_full_model))
-    state = utils.load_model(model, optimizer, os.path.join(args.snapshot_dir, args.load_full_model))
+if args.load_model is not None:
+    print("Continuing training full model from checkpoint " + str(args.load_model))
+    state = utils.load_model(model, optimizer, os.path.join(args.snapshot_dir, args.load_model))
 
 print('TRAINING START')
 while state["worse_epochs"] < args.patience:
@@ -167,8 +166,9 @@ while state["worse_epochs"] < args.patience:
 
             if example_num % 50 == 0:
                 writer.add_audio("input", x[0,:,model.shapes["output_start_frame"]:model.shapes["output_end_frame"]], state["step"], sample_rate=args.sr)
-                writer.add_audio("pred", packed_output[0,-args.channels:], state["step"], sample_rate=args.sr)
-                writer.add_audio("target", target[0,-args.channels:], state["step"], sample_rate=args.sr)
+                for i in range(len(INSTRUMENTS)):
+                    writer.add_audio(INSTRUMENTS[i] + "_pred", packed_output[0,i*args.channels:(i+1)*args.channels], state["step"], sample_rate=args.sr)
+                    writer.add_audio(INSTRUMENTS[i] + "_target", target[0,i*args.channels:(i+1)*args.channels], state["step"], sample_rate=args.sr)
 
             pbar.update(1)
 

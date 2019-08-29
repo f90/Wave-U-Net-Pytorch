@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import numpy as np
+import torch.nn.functional as F
 
 from waveunet_utils import Crop1d, zero_interleave
 
@@ -17,6 +17,7 @@ class ConvLayer(nn.Module):
             self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride, bias=True)
 
         #self.gn = nn.GroupNorm(n_outputs // 8, n_outputs)
+        #self.bn = nn.BatchNorm1d(n_outputs, momentum=0.01)
 
         self.dropout = nn.Dropout(dropout) if dropout > 0.0 else None
         self.identity_crop = Crop1d("both")
@@ -33,7 +34,8 @@ class ConvLayer(nn.Module):
             res_input = self.dropout(res_input)
 
         # Apply the convolution
-        out = nn.LeakyReLU()(self.filter(res_input))
+        out = F.leaky_relu(self.filter(res_input))
+        #out = F.relu(self.bn((self.filter(res_input)))) #TODO Make switch for normal/BN/GN
 
         return out
 
@@ -101,18 +103,6 @@ class UpsamplingBlock(nn.Module):
         for conv in self.post_shortcut_convs:
             combined = conv(combined, self.crop(upsampled, combined))
         return combined
-
-    '''
-    def get_input_size(self, output_size):
-        curr_size = output_size
-        # Combine convolutions
-        for conv in reversed(self.post_shortcut_convs):
-            curr_size = conv.get_input_size(curr_size)
-
-        # Upsampling convs
-        curr_size = self.pre_shortcut_conv.get_input_size(curr_size)
-        return self.upconv.get_input_size(curr_size)
-    '''
 
     def get_output_size(self, input_size):
         curr_size = self.upconv.get_output_size(input_size)

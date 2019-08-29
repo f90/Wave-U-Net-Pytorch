@@ -90,7 +90,7 @@ class PreprocessedAudioDataset(Dataset):
         return audio, targets
 
 def getMUSDB(database_path):
-    mus = musdb.DB(root_dir=database_path, is_wav=False)
+    mus = musdb.DB(root=database_path, is_wav=False)
 
     subsets = list()
 
