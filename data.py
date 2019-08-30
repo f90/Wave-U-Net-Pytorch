@@ -8,87 +8,6 @@ from torch.utils.data import Dataset
 
 from utils import load
 
-class PreprocessedAudioDataset(Dataset):
-    def __init__(self):
-        pass
-
-    def set_sampling_positions(self):
-        # Go through HDF and collect lengths of all audio files
-        with h5py.File(self.hdf_path, "r") as f:
-            lengths = [f[str(song_idx)].attrs["target_length"] for song_idx in range(len(f))]
-
-            # Subtract input_size from lengths and divide by hop size to determine number of starting positions
-            lengths = [(l // self.shapes["output_frames"]) + 1 for l in lengths]
-
-        self.start_pos = SortedList(np.cumsum(lengths))
-        self.length = self.start_pos[-1]
-
-    def get_sample(self, index):
-        # Open HDF5
-        if self.hdf_dataset is None:
-            driver = "core" if self.in_memory else None  # Load HDF5 fully into memory if desired
-            self.hdf_dataset = h5py.File(self.hdf_path, 'r', driver=driver)
-
-        # Find out which slice of targets we want to read
-        audio_idx = self.start_pos.bisect_right(index)
-        if audio_idx > 0:
-            index = index - self.start_pos[audio_idx - 1]
-
-        # Check length of audio signal
-        audio_length = self.hdf_dataset[str(audio_idx)].attrs["length"]
-        target_length = self.hdf_dataset[str(audio_idx)].attrs["target_length"]
-
-        # Determine position where to start targets
-        if self.random_hops:
-            start_target_pos_res = np.random.randint(0, max(target_length - self.shapes["output_frames"] + 1, 1))
-        else:
-            # Map item index to sample position within song
-            start_target_pos_res = index * self.shapes["output_frames"]
-        start_target_pos = start_target_pos_res * self.output_rate
-
-        # READ INPUTS
-        # Check front padding
-        start_pos = start_target_pos - self.shapes["output_start_frame"]
-        if start_pos < 0:
-            # Pad manually since audio signal was too short
-            pad_front = abs(start_pos)
-            start_pos = 0
-        else:
-            pad_front = 0
-
-        # Check back padding
-        end_pos = start_target_pos - self.shapes["output_start_frame"] + self.shapes["input_frames"]
-        if end_pos > audio_length:
-            # Pad manually since audio signal was too short
-            pad_back = end_pos - audio_length
-            end_pos = audio_length
-        else:
-            pad_back = 0
-
-        # Read and return
-        audio = self.hdf_dataset[str(audio_idx)]["inputs"][:, start_pos:end_pos].astype(np.float32)
-        if pad_front > 0 or pad_back > 0:
-            audio = np.pad(audio, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
-
-        # READ TARGETS
-        # Check if we have to pad targets at the end of a song
-        end_target_pos_res = start_target_pos_res + self.shapes["output_frames"]
-        if end_target_pos_res > target_length:
-            pad_target_back = end_target_pos_res - target_length
-            end_target_pos_res = target_length
-        else:
-            pad_target_back = 0
-
-        targets = self.hdf_dataset[str(audio_idx)]["targets"][:, start_target_pos_res:end_target_pos_res].astype(
-            np.float32)
-        if pad_target_back > 0:
-            targets = np.pad(targets, [(0, 0), (0, pad_target_back)], mode="constant", constant_values=0.0)
-
-        if hasattr(self, "audio_transform") and self.audio_transform is not None:
-            audio = self.audio_transform(audio, targets)
-
-        return audio, targets
-
 def getMUSDB(database_path):
     mus = musdb.DB(root=database_path, is_wav=False)
 
@@ -156,7 +75,7 @@ def get_musdb_folds(root_path):
     val_list = [elem for elem in train_val_list if elem not in train_list]
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
-class SeparationDataset(PreprocessedAudioDataset):
+class SeparationDataset(Dataset):
     def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, audio_transform=None, in_memory=False):
         '''
 
@@ -180,7 +99,7 @@ class SeparationDataset(PreprocessedAudioDataset):
         self.audio_transform = audio_transform
         self.in_memory = in_memory
 
-        self.output_rate = 1 #  1 target output per hop
+        # PREPARE HDF FILE
 
         # Check if HDF file exists already
         if not os.path.exists(self.hdf_path):
@@ -215,14 +134,88 @@ class SeparationDataset(PreprocessedAudioDataset):
         with h5py.File(self.hdf_path, "r") as f:
             if f.attrs["sr"] != sr or \
                     f.attrs["channels"] != channels or \
-                    not all(f.attrs["instruments"] == instruments):
+                    list(f.attrs["instruments"]) != instruments:
                 raise ValueError(
-                    "Tried to load existing HDF file, but sampling rate and channel are not as expected. Did you load an out-dated HDF file?")
+                    "Tried to load existing HDF file, but sampling rate and channel or instruments are not as expected. Did you load an out-dated HDF file?")
 
-        self.set_sampling_positions()
+        # HDF FILE READY
+
+        # SET SAMPLING POSITIONS
+
+        # Go through HDF and collect lengths of all audio files
+        with h5py.File(self.hdf_path, "r") as f:
+            lengths = [f[str(song_idx)].attrs["target_length"] for song_idx in range(len(f))]
+
+            # Subtract input_size from lengths and divide by hop size to determine number of starting positions
+            lengths = [(l // self.shapes["output_frames"]) + 1 for l in lengths]
+
+        self.start_pos = SortedList(np.cumsum(lengths))
+        self.length = self.start_pos[-1]
 
     def __getitem__(self, index):
-        return self.get_sample(index)
+        # Open HDF5
+        if self.hdf_dataset is None:
+            driver = "core" if self.in_memory else None  # Load HDF5 fully into memory if desired
+            self.hdf_dataset = h5py.File(self.hdf_path, 'r', driver=driver)
+
+        # Find out which slice of targets we want to read
+        audio_idx = self.start_pos.bisect_right(index)
+        if audio_idx > 0:
+            index = index - self.start_pos[audio_idx - 1]
+
+        # Check length of audio signal
+        audio_length = self.hdf_dataset[str(audio_idx)].attrs["length"]
+        target_length = self.hdf_dataset[str(audio_idx)].attrs["target_length"]
+
+        # Determine position where to start targets
+        if self.random_hops:
+            start_target_pos = np.random.randint(0, max(target_length - self.shapes["output_frames"] + 1, 1))
+        else:
+            # Map item index to sample position within song
+            start_target_pos = index * self.shapes["output_frames"]
+
+        # READ INPUTS
+        # Check front padding
+        start_pos = start_target_pos - self.shapes["output_start_frame"]
+        if start_pos < 0:
+            # Pad manually since audio signal was too short
+            pad_front = abs(start_pos)
+            start_pos = 0
+        else:
+            pad_front = 0
+
+        # Check back padding
+        end_pos = start_target_pos - self.shapes["output_start_frame"] + self.shapes["input_frames"]
+        if end_pos > audio_length:
+            # Pad manually since audio signal was too short
+            pad_back = end_pos - audio_length
+            end_pos = audio_length
+        else:
+            pad_back = 0
+
+        # Read and return
+        audio = self.hdf_dataset[str(audio_idx)]["inputs"][:, start_pos:end_pos].astype(np.float32)
+        if pad_front > 0 or pad_back > 0:
+            audio = np.pad(audio, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
+
+        # READ TARGETS
+        # Check if we have to pad targets at the end of a song
+        end_target_pos_res = start_target_pos + self.shapes["output_frames"]
+        if end_target_pos_res > target_length:
+            pad_target_back = end_target_pos_res - target_length
+            end_target_pos_res = target_length
+        else:
+            pad_target_back = 0
+
+        targets = self.hdf_dataset[str(audio_idx)]["targets"][:, start_target_pos:end_target_pos_res].astype(
+            np.float32)
+        if pad_target_back > 0:
+            targets = np.pad(targets, [(0, 0), (0, pad_target_back)], mode="constant", constant_values=0.0)
+
+        if hasattr(self, "audio_transform") and self.audio_transform is not None:
+            audio = self.audio_transform(audio, targets)
+
+        return audio, targets
 
     def __len__(self):
         return self.length

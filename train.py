@@ -6,7 +6,7 @@ import torch
 import pickle
 import numpy as np
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from tqdm import tqdm
 
@@ -80,19 +80,21 @@ parser.add_argument('--patience', type=int, default=6,
                     help="Patience for early stopping on validation set")
 parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
+parser.add_argument('--norm', type=str, default="normal", help="normal/bn/gn")
+parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
 
 args = parser.parse_args()
 
 np.random.seed(1337)
-INSTRUMENTS = ["bass", "drums", "other", "vocals"]
+INSTRUMENTS = ["accompaniment", "vocals"] #["bass", "drums", "other", "vocals"]
 NUM_INSTRUMENTS = len(INSTRUMENTS)
 
-torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
+#torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
 
 # MODEL
 num_features = [args.features*i for i in range(1, args.levels+1)] # Double features every layer?
 target_outputs = int(args.output_size * args.sr)
-model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=5, target_output_size=target_outputs, depth=args.depth, strides=args.strides)
+model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=5, target_output_size=target_outputs, depth=args.depth, strides=args.strides, norm=args.norm, res=args.res)
 
 if args.cuda:
     model = utils.DataParallel(model)
