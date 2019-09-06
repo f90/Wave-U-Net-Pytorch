@@ -38,12 +38,10 @@ def predict(audio, model):
 
             # Convert to Pytorch tensor for model prediction
             curr_input = torch.from_numpy(curr_input).unsqueeze(0)
-            # Predict
-            curr_targets = model(curr_input)
 
-            # Save predictions
-            for key in curr_targets.keys():
-                outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets[key].squeeze(0).cpu().numpy()
+            # Predict
+            for key, curr_targets in model(curr_input):
+                outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets.squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)
     outputs = {key : outputs[key][:,:expected_outputs] for key in outputs.keys()}

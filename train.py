@@ -15,6 +15,37 @@ from data import get_musdb_folds, SeparationDataset
 from evaluate import evaluate
 from waveunet import Waveunet
 
+def compute_loss(model, inputs, targets, criterion, compute_grad=False):
+    all_outputs = {}
+
+    if model.separate:
+        avg_loss = 0.0
+        num_sources = 0
+        for inst, output in model(inputs):
+            loss = criterion(output, targets[inst])
+
+            if compute_grad:
+                loss.backward()
+
+            avg_loss += loss.item()
+            num_sources += 1
+
+            all_outputs[inst] = output.detach().clone()
+
+        avg_loss /= float(num_sources)
+    else:
+        loss = 0
+        for inst, output in model(inputs):
+            loss += criterion(output, targets[inst])
+            all_outputs[inst] = output.detach().clone()
+
+        if compute_grad:
+            loss.backward()
+
+        avg_loss = loss.item() / float(len(all_outputs))
+
+    return all_outputs, avg_loss
+
 def validate(args, model, criterion, test_data):
     # PREPARE DATA
     dataloader = torch.utils.data.DataLoader(test_data,
@@ -26,18 +57,15 @@ def validate(args, model, criterion, test_data):
     model.eval()
     total_loss = 0.
     with tqdm(total=len(test_data) // args.batch_size) as pbar, torch.no_grad():
-        for example_num, (x, target) in enumerate(dataloader):
+        for example_num, (x, targets) in enumerate(dataloader):
             if args.cuda:
                 x = x.cuda()
-                target = target.cuda()
+                for k in list(targets.keys()):
+                    targets[k] = targets[k].cuda()
 
-            output = model(x)
+            _, avg_loss = compute_loss(model, x, targets, criterion)
 
-            # Compute loss by stacking sources together in channel dimension
-            packed_output = torch.cat(list(output.values()), dim=1)
-            loss = criterion(packed_output, target)
-
-            total_loss += (1. / float(example_num + 1)) * (loss.item() - total_loss)
+            total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
 
             pbar.set_description("Current loss: " + str(total_loss))
             pbar.update(1)
@@ -82,19 +110,25 @@ parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
 parser.add_argument('--norm', type=str, default="normal", help="normal/bn/gn")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
+parser.add_argument('--separate', type=int, default=0, help="Train separate model for each source (1) or only one (0)")
+parser.add_argument('--feature_growth', type=str, default="add",
+                    help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)")
 
 args = parser.parse_args()
 
 np.random.seed(1337)
-INSTRUMENTS = ["accompaniment", "vocals"] #["bass", "drums", "other", "vocals"]
+INSTRUMENTS = ["accompaniment", "vocals"] # ["bass", "drums", "other", "vocals"]
 NUM_INSTRUMENTS = len(INSTRUMENTS)
 
 #torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
 
 # MODEL
-num_features = [args.features*i for i in range(1, args.levels+1)] # Double features every layer?
+num_features = [args.features*i for i in range(1, args.levels+1)] if args.feature_growth == "add" else \
+               [args.features*2**i for i in range(0, args.levels)]
 target_outputs = int(args.output_size * args.sr)
-model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=5, target_output_size=target_outputs, depth=args.depth, strides=args.strides, norm=args.norm, res=args.res)
+model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=5,
+                 target_output_size=target_outputs, depth=args.depth, strides=args.strides,
+                 norm=args.norm, res=args.res, separate=args.separate)
 
 if args.cuda:
     model = utils.DataParallel(model)
@@ -142,35 +176,35 @@ while state["worse_epochs"] < args.patience:
     model.train()
     with tqdm(total=len(train_data) // args.batch_size) as pbar:
         np.random.seed()
-        for example_num, (x, target) in enumerate(dataloader):
+        for example_num, (x, targets) in enumerate(dataloader):
             if args.cuda:
                 x = x.cuda()
-                target = target.cuda()
+                for k in list(targets.keys()):
+                    targets[k] = targets[k].cuda()
 
             t = time.time()
-            output = model(x)
 
-            # Compute loss by stacking sources together in channel dimension
-            packed_output = torch.cat(list(output.values()), dim=1)
-            loss = criterion(packed_output, target)
-
+            # Compute loss for each instrument/model
             optimizer.zero_grad()
-
-            loss.backward()
+            outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
 
             optimizer.step()
+
             state["step"] += 1
 
             t = time.time() - t
             avg_time += (1. / float(example_num + 1)) * (t - avg_time)
 
-            writer.add_scalar("train_loss", loss.item(), state["step"])
+            writer.add_scalar("train_loss", avg_loss, state["step"])
 
             if example_num % 50 == 0:
-                writer.add_audio("input", x[0,:,model.shapes["output_start_frame"]:model.shapes["output_end_frame"]], state["step"], sample_rate=args.sr)
-                for i in range(len(INSTRUMENTS)):
-                    writer.add_audio(INSTRUMENTS[i] + "_pred", packed_output[0,i*args.channels:(i+1)*args.channels], state["step"], sample_rate=args.sr)
-                    writer.add_audio(INSTRUMENTS[i] + "_target", target[0,i*args.channels:(i+1)*args.channels], state["step"], sample_rate=args.sr)
+                writer.add_audio("input",
+                                 x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
+                                 state["step"], sample_rate=args.sr)
+
+                for inst in outputs.keys():
+                    writer.add_audio(inst + "_pred", outputs[inst][0], state["step"], sample_rate=args.sr)
+                    writer.add_audio(inst + "_target", targets[inst][0], state["step"], sample_rate=args.sr)
 
             pbar.update(1)
 

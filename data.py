@@ -98,6 +98,7 @@ class SeparationDataset(Dataset):
         self.shapes = shapes
         self.audio_transform = audio_transform
         self.in_memory = in_memory
+        self.instruments = instruments
 
         # PREPARE HDF FILE
 
@@ -212,8 +213,10 @@ class SeparationDataset(Dataset):
         if pad_target_back > 0:
             targets = np.pad(targets, [(0, 0), (0, pad_target_back)], mode="constant", constant_values=0.0)
 
+        targets = {inst : targets[idx*self.channels:(idx+1)*self.channels] for idx, inst in enumerate(self.instruments)}
+
         if hasattr(self, "audio_transform") and self.audio_transform is not None:
-            audio = self.audio_transform(audio, targets)
+            audio, targets = self.audio_transform(audio, targets)
 
         return audio, targets
 

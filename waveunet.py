@@ -175,7 +175,7 @@ class DownsamplingBlock(nn.Module):
         return curr_size
 
 class Waveunet(nn.Module):
-    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, norm, res, depth=1, strides=2):
+    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, norm, res, separate=False, depth=1, strides=2):
         super(Waveunet, self).__init__()
 
         self.num_levels = len(num_channels)
@@ -183,16 +183,17 @@ class Waveunet(nn.Module):
         self.kernel_size = kernel_size
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
-        self.num_outputs = num_channels
         self.depth = depth
         self.instruments = instruments
+        self.separate = separate
 
         # Only odd filter kernels allowed
         assert(kernel_size % 2 == 1)
 
         self.waveunets = nn.ModuleDict()
 
-        for instrument in instruments:
+        model_list = instruments if separate else ["ALL"]
+        for instrument in model_list:
             module = nn.Module()
             module.crop = Crop1d("both")
 
@@ -212,7 +213,9 @@ class Waveunet(nn.Module):
             module.bottlenecks = nn.ModuleList(
                 [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, norm) for _ in range(depth)])
 
-            module.output_conv = nn.Conv1d(num_channels[0], num_outputs, 1)
+            # Output conv
+            outputs = num_outputs if separate else num_outputs * len(instruments)
+            module.output_conv = nn.Conv1d(num_channels[0], outputs, 1)
 
             self.waveunets[instrument] = module
 
@@ -260,34 +263,39 @@ class Waveunet(nn.Module):
         except AssertionError as e:
             return False
 
+    def forward_module(self, x, module):
+        shortcuts = []
+        out = x
+
+        # DOWNSAMPLING BLOCKS
+        for block in module.downsampling_blocks:
+            out, short = block(out)
+            shortcuts.append(short)
+
+        # BOTTLENECK CONVOLUTION
+        for conv in module.bottlenecks:
+            out = conv(out)
+
+        # UPSAMPLING BLOCKS
+        for idx, block in enumerate(module.upsampling_blocks):
+            out = block(out, shortcuts[-1 - idx])
+
+        # OUTPUT CONV
+        out = module.output_conv(out)
+        if not self.training:  # At test time clip predictions to valid amplitude range
+            out = out.clamp(min=-1.0, max=1.0)
+        return out
+
     def forward(self, x):
         curr_input_size = x.shape[-1]
         assert(curr_input_size == self.input_size) # User promises to feed the proper input himself, to get the pre-calculated (NOT the originally desired) output size
 
-        out_dict = {}
+        if self.separate:
+            for inst, module in self.waveunets.items():
+                yield inst, self.forward_module(x, module)
+        else:
+            assert(len(self.waveunets) == 1)
+            out = self.forward_module(x, self.waveunets["ALL"])
 
-        for instrument, module in self.waveunets.items():
-            shortcuts = []
-            out = x
-
-            # DOWNSAMPLING BLOCKS
-            for block in module.downsampling_blocks:
-                out, short = block(out)
-                shortcuts.append(short)
-
-            # BOTTLENECK CONVOLUTION
-            for conv in module.bottlenecks:
-                out = conv(out)
-
-            # UPSAMPLING BLOCKS
-            for idx, block in enumerate(module.upsampling_blocks):
-                out = block(out, shortcuts[-1-idx])
-
-            # OUTPUT CONV
-            out = module.output_conv(out)
-            if not self.training: # At test time clip predictions to valid amplitude range
-                out = out.clamp(min=-1.0, max=1.0)
-
-            out_dict[instrument] = out
-
-        return out_dict
+            for idx, inst in enumerate(self.instruments):
+                yield inst, out[:, idx * self.num_outputs:(idx + 1) * self.num_outputs]
