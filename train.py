@@ -82,7 +82,9 @@ parser.add_argument('--features', type=int, default=24,
                     help='# of feature channels per layer')
 parser.add_argument('--log_dir', type=str, default='logs/waveunet',
                     help='Folder to write logs into')
-parser.add_argument('--dataset_dir', type=str, default="/mnt/windaten/Datasets/MUSDB18",
+parser.add_argument('--dataset_dir', type=str, default="/mnt/musdb",
+                    help='Dataset path')
+parser.add_argument('--hdf_dir', type=str, default="hdf",
                     help='Dataset path')
 parser.add_argument('--snapshot_dir', type=str, default='snapshots/waveunet',
                     help='Folder to write checkpoints into')
@@ -142,9 +144,9 @@ writer = SummaryWriter(args.log_dir)
 
 ### DATASET
 musdb = get_musdb_folds(args.dataset_dir)
-train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, random_hops=True)
-val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, random_hops=False)
-test_data = SeparationDataset(musdb, "test", INSTRUMENTS, args.sr, args.channels, model.shapes, random_hops=False)
+train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, True, args.hdf_dir)
+val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir)
+test_data = SeparationDataset(musdb, "test", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir)
 
 dataloader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, worker_init_fn=utils.worker_init_fn)
 

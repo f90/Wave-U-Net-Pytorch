@@ -76,7 +76,7 @@ def get_musdb_folds(root_path):
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
 class SeparationDataset(Dataset):
-    def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, audio_transform=None, in_memory=False):
+    def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):
         '''
 
         :param data: HDF audio data object
@@ -90,7 +90,7 @@ class SeparationDataset(Dataset):
         super(SeparationDataset, self).__init__()
 
         self.hdf_dataset = None
-        self.hdf_path = partition + ".hdf5"
+        self.hdf_path = os.path.join(hdf_dir, partition + ".hdf5")
 
         self.random_hops = random_hops
         self.sr = sr
@@ -104,6 +104,10 @@ class SeparationDataset(Dataset):
 
         # Check if HDF file exists already
         if not os.path.exists(self.hdf_path):
+            # Create folder if it did not exist before
+            if not os.path.exists(hdf_dir):
+                os.makedirs(hdf_dir)
+
             # Create HDF file
             with h5py.File(self.hdf_path, "w") as f:
                 f.attrs["sr"] = sr
