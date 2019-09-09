@@ -1,6 +1,6 @@
 import h5py
+import librosa
 import musdb
-import soundfile
 import os
 import numpy as np
 from sortedcontainers import SortedList
@@ -42,18 +42,18 @@ def getMUSDB(database_path):
             for stem in ["bass", "drums", "other", "vocals"]:
                 path = track_path + "_" + stem + ".wav"
                 audio = track.targets[stem].audio
-                soundfile.write(path, audio, rate, "PCM_16")
+                librosa.output.write_wav(path, audio, rate)
                 stem_audio[stem] = audio
                 paths[stem] = path
 
             # Add other instruments to form accompaniment
             acc_audio = np.clip(sum([stem_audio[key] for key in list(stem_audio.keys()) if key != "vocals"]), -1.0, 1.0)
-            soundfile.write(acc_path, acc_audio, rate, "PCM_16")
+            librosa.output.write_wav(acc_path, acc_audio, rate)
             paths["accompaniment"] = acc_path
 
             # Create mixture
             mix_audio = track.audio
-            soundfile.write(mix_path, mix_audio, rate, "PCM_16")
+            librosa.output.write_wav(mix_path, mix_audio, rate)
             paths["mix"] = mix_path
 
             diff_signal = np.abs(mix_audio - acc_audio - stem_audio["vocals"])
