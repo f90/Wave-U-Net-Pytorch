@@ -96,9 +96,9 @@ parser.add_argument('--levels', type=int, default=12,
                     help="Number DS/US blocks")
 parser.add_argument('--depth', type=int, default=1,
                     help="Number of convs per block")
-parser.add_argument('--sr', type=int, default=22050,
+parser.add_argument('--sr', type=int, default=44100,
                     help="Sampling rate")
-parser.add_argument('--channels', type=int, default=1,
+parser.add_argument('--channels', type=int, default=2,
                     help="Number of input audio channels")
 parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
@@ -117,7 +117,7 @@ parser.add_argument('--feature_growth', type=str, default="add",
 args = parser.parse_args()
 
 np.random.seed(1337)
-INSTRUMENTS = ["accompaniment", "vocals"] # ["bass", "drums", "other", "vocals"]
+INSTRUMENTS = ["bass", "drums", "other", "vocals"]
 NUM_INSTRUMENTS = len(INSTRUMENTS)
 
 #torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
@@ -198,13 +198,12 @@ while state["worse_epochs"] < args.patience:
             writer.add_scalar("train_loss", avg_loss, state["step"])
 
             if example_num % 50 == 0:
-                writer.add_audio("input",
-                                 x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]],
-                                 state["step"], sample_rate=args.sr)
+                input_centre = torch.mean(x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]], 0) # Stereo not supported for logs yet
+                writer.add_audio("input", input_centre, state["step"], sample_rate=args.sr)
 
                 for inst in outputs.keys():
-                    writer.add_audio(inst + "_pred", outputs[inst][0], state["step"], sample_rate=args.sr)
-                    writer.add_audio(inst + "_target", targets[inst][0], state["step"], sample_rate=args.sr)
+                    writer.add_audio(inst + "_pred", torch.mean(outputs[inst][0], 0), state["step"], sample_rate=args.sr)
+                    writer.add_audio(inst + "_target", torch.mean(targets[inst][0], 0), state["step"], sample_rate=args.sr)
 
             pbar.update(1)
 
