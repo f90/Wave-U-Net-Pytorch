@@ -2,6 +2,12 @@ BootStrap: docker
 From: nvidia/cuda:10.1-cudnn7-devel-ubuntu18.04
 
 %post
+    # Create extra folders that JADE HPC can bind to
+    # mkdir /tmp # This already exists
+    mkdir /local_scratch
+    mkdir /raid
+    mkdir /raid/local_scratch
+
     # Downloads the latest package lists (important).
     apt-get update -y
     # Runs apt-get while ensuring that there are no user prompts that would
@@ -19,6 +25,7 @@ From: nvidia/cuda:10.1-cudnn7-devel-ubuntu18.04
     # Reduce the size of the image by deleting the package lists we downloaded,
     # which are useless now.
     rm -rf /var/lib/apt/lists/*
+
     # Install Pipenv.
     pip3 install pipenv
 
