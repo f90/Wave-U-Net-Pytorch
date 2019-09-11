@@ -5,8 +5,44 @@ import os
 import numpy as np
 from sortedcontainers import SortedList
 from torch.utils.data import Dataset
+import glob
 
 from utils import load
+
+def getMUSDBHQ(database_path):
+    subsets = list()
+
+    for subset in ["train", "test"]:
+        tracks = glob.glob(os.path.join(database_path, subset, "*"))
+        samples = list()
+
+        # Go through tracks
+        for track_folder in tracks:
+            # Skip track if mixture is already written, assuming this track is done already
+            example = dict()
+            for stem in ["mix", "bass", "drums", "other", "vocals"]:
+                filename = stem if stem != "mix" else "mixture"
+                audio_path = os.path.join(track_folder, filename + ".wav")
+                example[stem] = audio_path
+
+            # Add other instruments to form accompaniment
+            acc_path = os.path.join(track_folder, "accompaniment.wav")
+
+            if not os.path.exists(acc_path):
+                stem_audio = []
+                for stem in ["bass", "drums", "other"]:
+                    audio, sr = load(example[stem], sr=None, mono=False)
+                    stem_audio.append(audio)
+                acc_audio = np.clip(sum(stem_audio), -1.0, 1.0)
+                librosa.output.write_wav(acc_path, acc_audio, sr)
+
+            example["accompaniment"] = acc_path
+
+            samples.append(example)
+
+        subsets.append(samples)
+
+    return subsets
 
 def getMUSDB(database_path):
     mus = musdb.DB(root=database_path, is_wav=False)
@@ -67,7 +103,7 @@ def getMUSDB(database_path):
     return subsets
 
 def get_musdb_folds(root_path):
-    dataset = getMUSDB(root_path)
+    dataset = getMUSDBHQ(root_path)
     train_val_list = dataset[0]
     test_list = dataset[1]
 

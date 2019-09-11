@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from waveunet_utils import Crop1d, zero_interleave, Resample1d
+from waveunet_utils import Crop1d, Resample1d
 
 
 class ConvLayer(nn.Module):
