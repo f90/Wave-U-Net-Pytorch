@@ -36,11 +36,13 @@ From: nvidia/cuda:9.0-cudnn7-devel-ubuntu16.04
 
     # Install Python modules. Ensure it is installed for Python 3.6 not pre-shipped Python 3.5
     python3.6 -m pip install future numpy librosa musdb museval h5py tqdm sortedcontainers
-    python3.6 -m pip install torch==1.2.0 torchvision==0.4.0 tensorboard
+    python3.6 -m pip install torch==1.1.0 torchvision==0.4.0 tensorboard
 
     # Set python alias to Python 3.6
-    ln -s /usr/bin/python3.6 /usr/bin/python & \
+    ln -s /usr/bin/python3.6 /usr/bin/python
     ln -s /usr/bin/pip3 /usr/bin/pip
+
+    # update-alternatives --set python /usr/bin/python3.6
 
 %environment
     # Pipenv requires a certain terminal encoding.
