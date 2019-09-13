@@ -102,6 +102,8 @@ parser.add_argument('--sr', type=int, default=44100,
                     help="Sampling rate")
 parser.add_argument('--channels', type=int, default=2,
                     help="Number of input audio channels")
+parser.add_argument('--kernel_size', type=int, default=5,
+                    help="Filter width of kernels. Has to be an odd number")
 parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
 parser.add_argument('--strides', type=int, default=2,
@@ -110,7 +112,7 @@ parser.add_argument('--patience', type=int, default=6,
                     help="Patience for early stopping on validation set")
 parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
-parser.add_argument('--norm', type=str, default="normal", help="normal/bn/gn")
+parser.add_argument('--residual', type=str, default="normal", help="normal/bn/gn/he/wavenet")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
 parser.add_argument('--separate', type=int, default=0, help="Train separate model for each source (1) or only one (0)")
 parser.add_argument('--feature_growth', type=str, default="add",
@@ -128,9 +130,9 @@ NUM_INSTRUMENTS = len(INSTRUMENTS)
 num_features = [args.features*i for i in range(1, args.levels+1)] if args.feature_growth == "add" else \
                [args.features*2**i for i in range(0, args.levels)]
 target_outputs = int(args.output_size * args.sr)
-model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=5,
+model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=args.kernel_size,
                  target_output_size=target_outputs, depth=args.depth, strides=args.strides,
-                 norm=args.norm, res=args.res, separate=args.separate)
+                 residual=args.residual, res=args.res, separate=args.separate)
 
 if args.cuda:
     model = utils.DataParallel(model)

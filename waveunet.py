@@ -6,41 +6,64 @@ from waveunet_utils import Crop1d, Resample1d
 
 
 class ConvLayer(nn.Module):
-    def __init__(self, n_inputs, n_outputs, kernel_size, stride, norm, transpose=False):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, residual, transpose=False):
         super(ConvLayer, self).__init__()
         self.transpose = transpose
         self.stride = stride
         self.kernel_size = kernel_size
+        self.residual = residual
 
         if self.transpose:
-            self.filter = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size-1, bias=True) #TODO Direct transposed conv produces artifacts?
+            self.filter = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size-1)
         else:
-            self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride, bias=True)
+            self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride)
 
-        if norm == "gn":
+        if residual == "gn":
             assert(n_outputs % 8 == 0)
             self.norm = nn.GroupNorm(n_outputs // 8, n_outputs)
-        elif norm == "bn":
+        elif residual == "bn":
             self.norm = nn.BatchNorm1d(n_outputs, momentum=0.01)
-        else:
-            self.norm = None
+        elif residual == "he":
+            assert (n_outputs % 8 == 0)
+
+            if n_inputs < 8:
+                self.norm = nn.GroupNorm(n_inputs, n_inputs)
+            else:
+                assert(n_inputs % 8 == 0)
+                self.norm = nn.GroupNorm(n_inputs // 8, n_inputs)
+
+            if n_inputs != n_outputs:
+                self.identity_conv = nn.Conv1d(n_inputs, n_outputs, 1)
+            else:
+                self.identity_conv = lambda x:x
+        elif residual == "wavenet":
+            if self.transpose:
+                self.filter2 = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size - 1)
+            else:
+                self.filter2 = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride)
+
+            if n_inputs != n_outputs:
+                self.identity_conv = nn.Conv1d(n_inputs, n_outputs, 1)
+            else:
+                self.identity_conv = lambda x:x
 
         self.identity_crop = Crop1d("both")
 
-    def forward(self, x, conditional=None):
-        # BEGINNING OF RESIDUAL BLOCK COMPUTATION
-        # If we have conditional input, concatenate it so the convolution operates on the input and conditional
-        if conditional is None:
-            res_input = x
-        else:
-            res_input = torch.cat([x, conditional], dim=1)
-
+    def forward(self, x):
         # Apply the convolution
-        if self.norm == None:
-            out = F.leaky_relu(self.filter(res_input))
+        if self.residual == "normal":
+            out = F.leaky_relu(self.filter(x))
+        elif self.residual == "gn" or self.residual == "bn":
+            out = F.relu(self.norm((self.filter(x))))
+        elif self.residual == "he":
+            residual = self.filter(F.relu(self.norm(x))) # Full pre-activation
+            out = residual + self.identity_conv(self.identity_crop(x, residual))
         else:
-            out = F.relu(self.norm((self.filter(res_input))))
-
+            assert(self.residual == "wavenet")# Wavenet
+            filter = torch.tanh(self.filter(x))
+            gate = torch.sigmoid(self.filter2(x))
+            residual = filter * gate
+            out = residual + self.identity_conv(self.identity_crop(x, residual))
         return out
 
     def get_input_size(self, output_size):
@@ -80,7 +103,7 @@ class ConvLayer(nn.Module):
         return curr_size
 
 class UpsamplingBlock(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, norm, res):
+    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, residual, res):
         super(UpsamplingBlock, self).__init__()
         assert(stride > 1)
 
@@ -88,17 +111,17 @@ class UpsamplingBlock(nn.Module):
         if res == "fixed":
             self.upconv = Resample1d(n_inputs, 15, stride, transpose=True)
         else:
-            self.upconv = ConvLayer(n_inputs, n_inputs, kernel_size, stride, norm, transpose=True)
+            self.upconv = ConvLayer(n_inputs, n_inputs, kernel_size, stride, residual, transpose=True)
 
         # Crop operation for the shortcut connection that might have more samples!
         self.crop = Crop1d("both")
 
-        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_outputs, kernel_size, 1, norm)] +
-                                                [ConvLayer(n_outputs, n_outputs, kernel_size, 1, norm) for _ in range(depth-1)])
+        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_outputs, kernel_size, 1, residual)] +
+                                                [ConvLayer(n_outputs, n_outputs, kernel_size, 1, residual) for _ in range(depth-1)])
 
         # CONVS to combine high- with low-level information (from shortcut)
-        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_outputs + n_shortcut, n_outputs, kernel_size, 1, norm)] +
-                                                 [ConvLayer(n_outputs, n_outputs, kernel_size, 1, norm) for _ in range(depth-1)])
+        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_outputs + n_shortcut, n_outputs, kernel_size, 1, residual)] +
+                                                 [ConvLayer(n_outputs, n_outputs, kernel_size, 1, residual) for _ in range(depth-1)])
 
     def forward(self, x, shortcut):
         # UPSAMPLE HIGH-LEVEL FEATURES
@@ -112,7 +135,7 @@ class UpsamplingBlock(nn.Module):
 
         # Combine high- and low-level features
         for conv in self.post_shortcut_convs:
-            combined = conv(combined, self.crop(upsampled, combined))
+            combined = conv(torch.cat([combined, self.crop(upsampled, combined)], dim=1))
         return combined
 
     def get_output_size(self, input_size):
@@ -129,7 +152,7 @@ class UpsamplingBlock(nn.Module):
         return curr_size
 
 class DownsamplingBlock(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, norm, res):
+    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, residual, res):
         super(DownsamplingBlock, self).__init__()
         assert(stride > 1)
 
@@ -138,18 +161,18 @@ class DownsamplingBlock(nn.Module):
         self.crop = Crop1d("both")
 
         # CONV 1
-        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_shortcut, kernel_size, 1, norm)] +
-                                   [ConvLayer(n_shortcut, n_shortcut, kernel_size, 1, norm) for _ in range(depth - 1)])
+        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_shortcut, kernel_size, 1, residual)] +
+                                   [ConvLayer(n_shortcut, n_shortcut, kernel_size, 1, residual) for _ in range(depth - 1)])
 
-        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_shortcut, n_outputs, kernel_size, 1, norm)] +
-                                                [ConvLayer(n_outputs, n_outputs, kernel_size, 1, norm) for _ in
+        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_shortcut, n_outputs, kernel_size, 1, residual)] +
+                                                [ConvLayer(n_outputs, n_outputs, kernel_size, 1, residual) for _ in
                                                  range(depth - 1)])
 
         # CONV 2 with decimation
         if res == "fixed":
             self.downconv = Resample1d(n_outputs, 15, stride)
         else:
-            self.downconv = ConvLayer(n_outputs, n_outputs, kernel_size, stride, norm)
+            self.downconv = ConvLayer(n_outputs, n_outputs, kernel_size, stride, residual)
 
     def forward(self, x):
         shortcut = x
@@ -175,7 +198,7 @@ class DownsamplingBlock(nn.Module):
         return curr_size
 
 class Waveunet(nn.Module):
-    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, norm, res, separate=False, depth=1, strides=2):
+    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, residual, res, separate=False, depth=1, strides=2):
         super(Waveunet, self).__init__()
 
         self.num_levels = len(num_channels)
@@ -204,14 +227,14 @@ class Waveunet(nn.Module):
                 in_ch = num_inputs if i == 0 else num_channels[i]
 
                 module.downsampling_blocks.append(
-                    DownsamplingBlock(in_ch, num_channels[i], num_channels[i+1], kernel_size, strides, depth, norm, res))
+                    DownsamplingBlock(in_ch, num_channels[i], num_channels[i+1], kernel_size, strides, depth, residual, res))
 
             for i in range(0, self.num_levels - 1):
                 module.upsampling_blocks.append(
-                    UpsamplingBlock(num_channels[-1-i], num_channels[-2-i], num_channels[-2-i], kernel_size, strides, depth, norm, res))
+                    UpsamplingBlock(num_channels[-1-i], num_channels[-2-i], num_channels[-2-i], kernel_size, strides, depth, residual, res))
 
             module.bottlenecks = nn.ModuleList(
-                [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, norm) for _ in range(depth)])
+                [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, residual) for _ in range(depth)])
 
             # Output conv
             outputs = num_outputs if separate else num_outputs * len(instruments)
