@@ -13,6 +13,7 @@ def getMUSDBHQ(database_path):
     subsets = list()
 
     for subset in ["train", "test"]:
+        print("Loading " + subset + " set...")
         tracks = glob.glob(os.path.join(database_path, subset, "*"))
         samples = list()
 
@@ -29,6 +30,7 @@ def getMUSDBHQ(database_path):
             acc_path = os.path.join(track_folder, "accompaniment.wav")
 
             if not os.path.exists(acc_path):
+                print("Writing accompaniment to " + track_folder)
                 stem_audio = []
                 for stem in ["bass", "drums", "other"]:
                     audio, sr = load(example[stem], sr=None, mono=False)
@@ -100,6 +102,7 @@ def getMUSDB(database_path):
 
         subsets.append(samples)
 
+    print("DONE preparing dataset!")
     return subsets
 
 def get_musdb_folds(root_path):
@@ -109,6 +112,7 @@ def get_musdb_folds(root_path):
 
     train_list = np.random.choice(train_val_list, 75, replace=False)
     val_list = [elem for elem in train_val_list if elem not in train_list]
+    print(train_list)
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
 class SeparationDataset(Dataset):
