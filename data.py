@@ -18,7 +18,7 @@ def getMUSDBHQ(database_path):
         samples = list()
 
         # Go through tracks
-        for track_folder in tracks:
+        for track_folder in sorted(tracks):
             # Skip track if mixture is already written, assuming this track is done already
             example = dict()
             for stem in ["mix", "bass", "drums", "other", "vocals"]:
@@ -56,7 +56,7 @@ def getMUSDB(database_path):
         samples = list()
 
         # Go through tracks
-        for track in tracks:
+        for track in sorted(tracks):
             # Skip track if mixture is already written, assuming this track is done already
             track_path = track.path[:-4]
             mix_path = track_path + "_mix.wav"
@@ -110,9 +110,10 @@ def get_musdb_folds(root_path):
     train_val_list = dataset[0]
     test_list = dataset[1]
 
+    np.random.seed(1337)
     train_list = np.random.choice(train_val_list, 75, replace=False)
     val_list = [elem for elem in train_val_list if elem not in train_list]
-    print(train_list)
+    print("First training song: " + train_list[0])
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
 class SeparationDataset(Dataset):

@@ -120,7 +120,6 @@ parser.add_argument('--feature_growth', type=str, default="add",
 
 args = parser.parse_args()
 
-np.random.seed(1337)
 INSTRUMENTS = ["bass", "drums", "other", "vocals"]
 NUM_INSTRUMENTS = len(INSTRUMENTS)
 
