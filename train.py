@@ -108,7 +108,7 @@ parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
 parser.add_argument('--strides', type=int, default=2,
                     help="Strides in Waveunet")
-parser.add_argument('--patience', type=int, default=6,
+parser.add_argument('--patience', type=int, default=20,
                     help="Patience for early stopping on validation set")
 parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
