@@ -92,6 +92,8 @@ parser.add_argument('--load_model', type=str, default=None,
                     help='Reload a previously trained model (whole task model)')
 parser.add_argument('--lr', type=float, default=1e-4,
                     help='initial learning rate (default: 5e-4)')
+parser.add_argument('--example_freq', type=int, default=200,
+                    help="Write model outputs as audio files into logs every N training iterations")
 parser.add_argument('--batch_size', type=int, default=4,
                     help="Batch size")
 parser.add_argument('--levels', type=int, default=12,
@@ -200,7 +202,7 @@ while state["worse_epochs"] < args.patience:
 
             writer.add_scalar("train_loss", avg_loss, state["step"])
 
-            if example_num % 50 == 0:
+            if example_num % args.example_freq == 0:
                 input_centre = torch.mean(x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]], 0) # Stereo not supported for logs yet
                 writer.add_audio("input", input_centre, state["step"], sample_rate=args.sr)
 
