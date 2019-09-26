@@ -90,8 +90,12 @@ parser.add_argument('--snapshot_dir', type=str, default='snapshots/waveunet',
                     help='Folder to write checkpoints into')
 parser.add_argument('--load_model', type=str, default=None,
                     help='Reload a previously trained model (whole task model)')
-parser.add_argument('--lr', type=float, default=1e-4,
+parser.add_argument('--lr', type=float, default=1e-3,
                     help='initial learning rate (default: 5e-4)')
+parser.add_argument('--min_lr', type=float, default=5e-5,
+                    help='initial learning rate (default: 5e-4)')
+parser.add_argument('--cycles', type=int, default=2,
+                    help='Number of LR cycles per epoch')
 parser.add_argument('--batch_size', type=int, default=4,
                     help="Batch size")
 parser.add_argument('--levels', type=int, default=12,
@@ -108,8 +112,10 @@ parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
 parser.add_argument('--strides', type=int, default=2,
                     help="Strides in Waveunet")
-parser.add_argument('--patience', type=int, default=6,
+parser.add_argument('--patience', type=int, default=20,
                     help="Patience for early stopping on validation set")
+parser.add_argument('--example_freq', type=int, default=200,
+                    help="Write an audio summary into Tensorboard logs every X training iterations")
 parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
 parser.add_argument('--residual', type=str, default="normal", help="normal/bn/gn/he/wavenet")
@@ -187,6 +193,10 @@ while state["worse_epochs"] < args.patience:
 
             t = time.time()
 
+            # Set LR for this iteration
+            utils.set_cyclic_lr(optimizer, example_num, len(train_data) // args.batch_size, args.cycles, args.min_lr, args.lr)
+            writer.add_scalar("lr", utils.get_lr(optimizer), state["step"])
+
             # Compute loss for each instrument/model
             optimizer.zero_grad()
             outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
@@ -200,7 +210,7 @@ while state["worse_epochs"] < args.patience:
 
             writer.add_scalar("train_loss", avg_loss, state["step"])
 
-            if example_num % 50 == 0:
+            if example_num % args.example_freq == 0:
                 input_centre = torch.mean(x[0, :, model.shapes["output_start_frame"]:model.shapes["output_end_frame"]], 0) # Stereo not supported for logs yet
                 writer.add_audio("input", input_centre, state["step"], sample_rate=args.sr)
 
