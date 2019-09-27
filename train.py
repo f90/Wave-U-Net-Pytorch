@@ -254,7 +254,7 @@ writer.add_scalar("test_loss", test_loss, state["step"])
 # Mir_eval metrics
 test_metrics = evaluate(args, musdb["test"], model, INSTRUMENTS)
 
-with open(os.path.join(args.snapshot_dir, "results.pkl", "wb")) as f:
+with open(os.path.join(args.snapshot_dir, "results.pkl"), "wb") as f:
     pickle.dump(test_metrics, f)
 
 SDR = [np.mean([instrument["SDR"] for instrument in song.values()]) for song in test_metrics]
