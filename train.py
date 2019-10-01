@@ -11,7 +11,7 @@ from torch.optim import Adam
 from tqdm import tqdm
 
 import utils
-from data import get_musdb_folds, SeparationDataset
+from data import get_musdb_folds, SeparationDataset, random_amplify, crop
 from evaluate import evaluate
 from waveunet import Waveunet
 
@@ -151,9 +151,11 @@ writer = SummaryWriter(args.log_dir)
 
 ### DATASET
 musdb = get_musdb_folds(args.dataset_dir)
-train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, True, args.hdf_dir)
-val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir)
-test_data = SeparationDataset(musdb, "test", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir)
+crop_func = lambda mix,targets : crop(mix, targets, model.shapes)
+augment_func = lambda mix,targets : random_amplify(mix, targets, model.shapes, 0.7, 1.0)
+train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, True, args.hdf_dir, audio_transform=augment_func)
+val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
+test_data = SeparationDataset(musdb, "test", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
 
 dataloader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, worker_init_fn=utils.worker_init_fn)
 

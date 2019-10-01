@@ -116,6 +116,21 @@ def get_musdb_folds(root_path):
     print("First training song: " + str(train_list[0]))
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
+def crop(mix, targets, shapes):
+    for key in targets.keys():
+        if key != "mix":
+            targets[key] = targets[key][:, shapes["output_start_frame"]:shapes["output_end_frame"]]
+    return mix, targets
+
+def random_amplify(mix, targets, shapes, min, max):
+    new_mix = 0
+    for key in targets.keys():
+        if key != "mix":
+            targets[key] = targets[key] * np.random.uniform(min, max)
+            new_mix += targets[key]
+    new_mix = np.clip(new_mix, -1.0, 1.0)
+    return crop(new_mix, targets, shapes)
+
 class SeparationDataset(Dataset):
     def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):
         '''
@@ -244,19 +259,9 @@ class SeparationDataset(Dataset):
         if pad_front > 0 or pad_back > 0:
             audio = np.pad(audio, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
 
-        # READ TARGETS
-        # Check if we have to pad targets at the end of a song
-        end_target_pos_res = start_target_pos + self.shapes["output_frames"]
-        if end_target_pos_res > target_length:
-            pad_target_back = end_target_pos_res - target_length
-            end_target_pos_res = target_length
-        else:
-            pad_target_back = 0
-
-        targets = self.hdf_dataset[str(audio_idx)]["targets"][:, start_target_pos:end_target_pos_res].astype(
-            np.float32)
-        if pad_target_back > 0:
-            targets = np.pad(targets, [(0, 0), (0, pad_target_back)], mode="constant", constant_values=0.0)
+        targets = self.hdf_dataset[str(audio_idx)]["targets"][:, start_pos:end_pos].astype(np.float32)
+        if pad_front > 0 or pad_back > 0:
+            targets = np.pad(targets, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
 
         targets = {inst : targets[idx*self.channels:(idx+1)*self.channels] for idx, inst in enumerate(self.instruments)}
 
