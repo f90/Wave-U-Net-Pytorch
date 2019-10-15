@@ -78,7 +78,7 @@ parser.add_argument('--cuda', action='store_true',
                     help='use CUDA (default: False)')
 parser.add_argument('--num_workers', type=int, default=1,
                     help='Number of data loader worker threads (default: 1)')
-parser.add_argument('--features', type=int, default=24,
+parser.add_argument('--features', type=int, default=48,
                     help='# of feature channels per layer')
 parser.add_argument('--log_dir', type=str, default='logs/waveunet',
                     help='Folder to write logs into')
