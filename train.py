@@ -259,12 +259,13 @@ test_metrics = evaluate(args, musdb["test"], model, INSTRUMENTS)
 with open(os.path.join(args.snapshot_dir, "results.pkl"), "wb") as f:
     pickle.dump(test_metrics, f)
 
-SDR = [np.mean([instrument["SDR"] for instrument in song.values()]) for song in test_metrics]
-SIR = [np.mean([instrument["SIR"] for instrument in song.values()]) for song in test_metrics]
+avg_SDRs = {inst : np.mean([np.nanmean(song[inst]["SDR"]) for song in test_metrics]) for inst in INSTRUMENTS}
+avg_SIRs = {inst : np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metrics]) for inst in INSTRUMENTS}
 
-writer.add_scalar("test_SDR", SDR, state["step"])
-writer.add_scalar("test_SIR", SIR, state["step"])
-print("SDR: " + str(SDR))
-print("SIR: " + str(SIR))
+for inst in INSTRUMENTS:
+    writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])
+    writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])
+writer.add_scalar("test_SDR", np.mean(avg_SDRs.values()))
+print("SDR: " + str(np.mean(avg_SDRs.values())))
 
 writer.close()
