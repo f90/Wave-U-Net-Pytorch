@@ -52,7 +52,7 @@ def predict(audio, model):
             outputs = outputs.cuda()
     return outputs
 
-def predict_song(args, audio_path, model, instruments):
+def predict_song(args, audio_path, model):
     model.eval()
 
     # Load mixture in original sampling rate
@@ -87,15 +87,15 @@ def predict_song(args, audio_path, model, instruments):
             print("WARNING: Padding output by " + str(diff) + " samples")
             sources[key] = np.pad(sources[key], [(0,0), (0, -diff)], "constant", 0.0)
 
-    # Adapt channels
-    if mix_channels > args.channels:
-        assert(args.channels == 1)
-        # Duplicate mono predictions
-        sources = {key : np.tile(sources[key], [mix_channels, 1]) for key in instruments}
-    elif mix_channels < args.channels:
-        assert(mix_channels == 1)
-        # Reduce model output to mono
-        sources = {key: np.mean(sources[key], axis=0, keepdims=True) for key in instruments}
+        # Adapt channels
+        if mix_channels > args.channels:
+            assert(args.channels == 1)
+            # Duplicate mono predictions
+            sources[key] = np.tile(sources[key], [mix_channels, 1])
+        elif mix_channels < args.channels:
+            assert(mix_channels == 1)
+            # Reduce model output to mono
+            sources[key] = np.mean(sources[key], axis=0, keepdims=True)
 
     return sources
 
@@ -110,7 +110,7 @@ def evaluate(args, dataset, model, instruments):
             target_sources = np.stack([utils.load(example[instrument], sr=None, mono=False)[0].T for instrument in instruments])
 
             # Predict using mixture
-            pred_sources = predict_song(args, example["mix"], model, instruments)
+            pred_sources = predict_song(args, example["mix"], model)
             pred_sources = np.stack([pred_sources[key].T for key in instruments])
 
             # Evaluate

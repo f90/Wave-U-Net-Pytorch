@@ -118,7 +118,7 @@ parser.add_argument('--example_freq', type=int, default=200,
                     help="Write an audio summary into Tensorboard logs every X training iterations")
 parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
-parser.add_argument('--residual', type=str, default="normal", help="normal/bn/gn/he/wavenet")
+parser.add_argument('--residual', type=str, default="gn", help="normal/bn/gn/he/wavenet")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
 parser.add_argument('--separate', type=int, default=0, help="Train separate model for each source (1) or only one (0)")
 parser.add_argument('--feature_growth', type=str, default="add",
@@ -265,7 +265,8 @@ avg_SIRs = {inst : np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metri
 for inst in INSTRUMENTS:
     writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])
     writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])
-writer.add_scalar("test_SDR", np.mean(avg_SDRs.values()))
-print("SDR: " + str(np.mean(avg_SDRs.values())))
+overall_SDR = np.mean([v for v in avg_SDRs.values()])
+writer.add_scalar("test_SDR", overall_SDR)
+print("SDR: " + overall_SDR)
 
 writer.close()
