@@ -267,6 +267,6 @@ for inst in INSTRUMENTS:
     writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])
 overall_SDR = np.mean([v for v in avg_SDRs.values()])
 writer.add_scalar("test_SDR", overall_SDR)
-print("SDR: " + overall_SDR)
+print("SDR: " + str(overall_SDR))
 
 writer.close()
