@@ -78,7 +78,7 @@ parser.add_argument('--cuda', action='store_true',
                     help='use CUDA (default: False)')
 parser.add_argument('--num_workers', type=int, default=1,
                     help='Number of data loader worker threads (default: 1)')
-parser.add_argument('--features', type=int, default=48,
+parser.add_argument('--features', type=int, default=32,
                     help='# of feature channels per layer')
 parser.add_argument('--log_dir', type=str, default='logs/waveunet',
                     help='Folder to write logs into')
@@ -98,7 +98,7 @@ parser.add_argument('--cycles', type=int, default=2,
                     help='Number of LR cycles per epoch')
 parser.add_argument('--batch_size', type=int, default=4,
                     help="Batch size")
-parser.add_argument('--levels', type=int, default=12,
+parser.add_argument('--levels', type=int, default=6,
                     help="Number DS/US blocks")
 parser.add_argument('--depth', type=int, default=1,
                     help="Number of convs per block")
@@ -110,7 +110,7 @@ parser.add_argument('--kernel_size', type=int, default=5,
                     help="Filter width of kernels. Has to be an odd number")
 parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
-parser.add_argument('--strides', type=int, default=2,
+parser.add_argument('--strides', type=int, default=4,
                     help="Strides in Waveunet")
 parser.add_argument('--patience', type=int, default=20,
                     help="Patience for early stopping on validation set")
@@ -120,8 +120,8 @@ parser.add_argument('--loss', type=str, default="L1",
                     help="L1 or L2")
 parser.add_argument('--residual', type=str, default="gn", help="normal/bn/gn/he/wavenet")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
-parser.add_argument('--separate', type=int, default=0, help="Train separate model for each source (1) or only one (0)")
-parser.add_argument('--feature_growth', type=str, default="add",
+parser.add_argument('--separate', type=int, default=1, help="Train separate model for each source (1) or only one (0)")
+parser.add_argument('--feature_growth', type=str, default="double",
                     help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)")
 
 args = parser.parse_args()

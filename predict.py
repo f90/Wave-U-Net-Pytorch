@@ -11,13 +11,13 @@ from waveunet import Waveunet
 parser = argparse.ArgumentParser()
 parser.add_argument('--cuda', action='store_true',
                     help='use CUDA (default: False)')
-parser.add_argument('--features', type=int, default=48,
+parser.add_argument('--features', type=int, default=32,
                     help='# of feature channels per layer')
 parser.add_argument('--load_model', type=str,
                     help='Reload a previously trained model')
 parser.add_argument('--batch_size', type=int, default=4,
                     help="Batch size")
-parser.add_argument('--levels', type=int, default=12,
+parser.add_argument('--levels', type=int, default=6,
                     help="Number DS/US blocks")
 parser.add_argument('--depth', type=int, default=1,
                     help="Number of convs per block")
@@ -33,8 +33,8 @@ parser.add_argument('--strides', type=int, default=2,
                     help="Strides in Waveunet")
 parser.add_argument('--residual', type=str, default="bn", help="normal/bn/gn/he/wavenet")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
-parser.add_argument('--separate', type=int, default=0, help="Train separate model for each source (1) or only one (0)")
-parser.add_argument('--feature_growth', type=str, default="add",
+parser.add_argument('--separate', type=int, default=1, help="Train separate model for each source (1) or only one (0)")
+parser.add_argument('--feature_growth', type=str, default="double",
                     help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)")
 
 parser.add_argument('--input', type=str, default=os.path.join("audio_examples", "Cristina Vane - So Easy", "mix.mp3"),
