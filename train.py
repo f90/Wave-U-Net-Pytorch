@@ -98,7 +98,7 @@ parser.add_argument('--cycles', type=int, default=2,
                     help='Number of LR cycles per epoch')
 parser.add_argument('--batch_size', type=int, default=4,
                     help="Batch size")
-parser.add_argument('--levels', type=int, default=6,
+parser.add_argument('--levels', type=int, default=7,
                     help="Number DS/US blocks")
 parser.add_argument('--depth', type=int, default=1,
                     help="Number of convs per block")
