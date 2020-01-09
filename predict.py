@@ -29,9 +29,9 @@ parser.add_argument('--kernel_size', type=int, default=5,
                     help="Filter width of kernels. Has to be an odd number")
 parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
-parser.add_argument('--strides', type=int, default=2,
+parser.add_argument('--strides', type=int, default=4,
                     help="Strides in Waveunet")
-parser.add_argument('--residual', type=str, default="bn", help="normal/bn/gn/he/wavenet")
+parser.add_argument('--residual', type=str, default="gn", help="normal/bn/gn/he/wavenet")
 parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
 parser.add_argument('--separate', type=int, default=1, help="Train separate model for each source (1) or only one (0)")
 parser.add_argument('--feature_growth', type=str, default="double",
