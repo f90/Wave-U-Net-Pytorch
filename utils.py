@@ -58,7 +58,7 @@ class DataParallel(torch.nn.DataParallel):
             return getattr(self.module, name)
 
 def save_model(model, optimizer, step, path):
-    if not os.path.exists(os.path.dirname(path)):
+    if len(os.path.dirname(path)) > 0 and not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     torch.save({
         'model_state_dict': model.state_dict(),

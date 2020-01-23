@@ -97,6 +97,8 @@ def predict_song(args, audio_path, model):
             # Reduce model output to mono
             sources[key] = np.mean(sources[key], axis=0, keepdims=True)
 
+        sources[key] = np.asfortranarray(sources[key]) # So librosa does not complain if we want to save it
+
     return sources
 
 def evaluate(args, dataset, model, instruments):

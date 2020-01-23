@@ -146,7 +146,7 @@ class SeparationDataset(Dataset):
         super(SeparationDataset, self).__init__()
 
         self.hdf_dataset = None
-        self.hdf_path = os.path.join(hdf_dir, partition + ".hdf5")
+        self.hdf_dir = os.path.join(hdf_dir, partition + ".hdf5")
 
         self.random_hops = random_hops
         self.sr = sr
@@ -159,13 +159,13 @@ class SeparationDataset(Dataset):
         # PREPARE HDF FILE
 
         # Check if HDF file exists already
-        if not os.path.exists(self.hdf_path):
+        if not os.path.exists(self.hdf_dir):
             # Create folder if it did not exist before
             if not os.path.exists(hdf_dir):
                 os.makedirs(hdf_dir)
 
             # Create HDF file
-            with h5py.File(self.hdf_path, "w") as f:
+            with h5py.File(self.hdf_dir, "w") as f:
                 f.attrs["sr"] = sr
                 f.attrs["channels"] = channels
                 f.attrs["instruments"] = instruments
@@ -192,7 +192,7 @@ class SeparationDataset(Dataset):
                     print("Added audio file to dataset")
 
         # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
-        with h5py.File(self.hdf_path, "r") as f:
+        with h5py.File(self.hdf_dir, "r") as f:
             if f.attrs["sr"] != sr or \
                     f.attrs["channels"] != channels or \
                     list(f.attrs["instruments"]) != instruments:
@@ -204,7 +204,7 @@ class SeparationDataset(Dataset):
         # SET SAMPLING POSITIONS
 
         # Go through HDF and collect lengths of all audio files
-        with h5py.File(self.hdf_path, "r") as f:
+        with h5py.File(self.hdf_dir, "r") as f:
             lengths = [f[str(song_idx)].attrs["target_length"] for song_idx in range(len(f))]
 
             # Subtract input_size from lengths and divide by hop size to determine number of starting positions
@@ -217,7 +217,7 @@ class SeparationDataset(Dataset):
         # Open HDF5
         if self.hdf_dataset is None:
             driver = "core" if self.in_memory else None  # Load HDF5 fully into memory if desired
-            self.hdf_dataset = h5py.File(self.hdf_path, 'r', driver=driver)
+            self.hdf_dataset = h5py.File(self.hdf_dir, 'r', driver=driver)
 
         # Find out which slice of targets we want to read
         audio_idx = self.start_pos.bisect_right(index)
