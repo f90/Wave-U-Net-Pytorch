@@ -12,65 +12,8 @@ from tqdm import tqdm
 
 import utils
 from data import get_musdb_folds, SeparationDataset, random_amplify, crop
-from evaluate import evaluate
+from test import evaluate, validate
 from waveunet import Waveunet
-
-def compute_loss(model, inputs, targets, criterion, compute_grad=False):
-    all_outputs = {}
-
-    if model.separate:
-        avg_loss = 0.0
-        num_sources = 0
-        for inst, output in model(inputs):
-            loss = criterion(output, targets[inst])
-
-            if compute_grad:
-                loss.backward()
-
-            avg_loss += loss.item()
-            num_sources += 1
-
-            all_outputs[inst] = output.detach().clone()
-
-        avg_loss /= float(num_sources)
-    else:
-        loss = 0
-        for inst, output in model(inputs):
-            loss += criterion(output, targets[inst])
-            all_outputs[inst] = output.detach().clone()
-
-        if compute_grad:
-            loss.backward()
-
-        avg_loss = loss.item() / float(len(all_outputs))
-
-    return all_outputs, avg_loss
-
-def validate(args, model, criterion, test_data):
-    # PREPARE DATA
-    dataloader = torch.utils.data.DataLoader(test_data,
-                                             batch_size=args.batch_size,
-                                             shuffle=False,
-                                             num_workers=args.num_workers)
-
-    # VALIDATE
-    model.eval()
-    total_loss = 0.
-    with tqdm(total=len(test_data) // args.batch_size) as pbar, torch.no_grad():
-        for example_num, (x, targets) in enumerate(dataloader):
-            if args.cuda:
-                x = x.cuda()
-                for k in list(targets.keys()):
-                    targets[k] = targets[k].cuda()
-
-            _, avg_loss = compute_loss(model, x, targets, criterion)
-
-            total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
-
-            pbar.set_description("Current loss: " + str(total_loss))
-            pbar.update(1)
-
-    return total_loss
 
 ## TRAIN PARAMETERS
 parser = argparse.ArgumentParser()
@@ -82,11 +25,11 @@ parser.add_argument('--features', type=int, default=32,
                     help='# of feature channels per layer')
 parser.add_argument('--log_dir', type=str, default='logs/waveunet',
                     help='Folder to write logs into')
-parser.add_argument('--dataset_dir', type=str, default="/mnt/musdb",
+parser.add_argument('--dataset_dir', type=str, default="/mnt/windaten/Datasets/MUSDB18HQ",
                     help='Dataset path')
 parser.add_argument('--hdf_dir', type=str, default="hdf",
                     help='Dataset path')
-parser.add_argument('--snapshot_dir', type=str, default='snapshots/waveunet',
+parser.add_argument('--checkpoint_dir', type=str, default='checkpoints/waveunet',
                     help='Folder to write checkpoints into')
 parser.add_argument('--load_model', type=str, default=None,
                     help='Reload a previously trained model (whole task model)')
@@ -151,7 +94,9 @@ writer = SummaryWriter(args.log_dir)
 
 ### DATASET
 musdb = get_musdb_folds(args.dataset_dir)
+# If not data augmentation, at least crop targets to fit model output shape
 crop_func = lambda mix,targets : crop(mix, targets, model.shapes)
+# Data augmentation function for training
 augment_func = lambda mix,targets : random_amplify(mix, targets, model.shapes, 0.7, 1.0)
 train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, True, args.hdf_dir, audio_transform=augment_func)
 val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
@@ -161,6 +106,7 @@ dataloader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size,
 
 ##### TRAINING ####
 
+# Set up the loss function
 if args.loss == "L1":
     criterion = lambda x,y : torch.mean(torch.abs(x - y))
 elif args.loss == "L2":
@@ -168,8 +114,10 @@ elif args.loss == "L2":
 else:
     raise NotImplementedError("Couldn't find this loss!")
 
+# Set up optimiser
 optimizer = Adam(params=model.parameters(), lr=args.lr)
 
+# Set up training state dict that will also be saved into checkpoints
 state = {"step" : 0,
          "worse_epochs" : 0,
          "epochs" : 0,
@@ -178,7 +126,7 @@ state = {"step" : 0,
 # LOAD MODEL CHECKPOINT IF DESIRED
 if args.load_model is not None:
     print("Continuing training full model from checkpoint " + str(args.load_model))
-    state = utils.load_model(model, optimizer, os.path.join(args.snapshot_dir, args.load_model))
+    state = utils.load_model(model, optimizer, args.load_model)
 
 print('TRAINING START')
 while state["worse_epochs"] < args.patience:
@@ -201,7 +149,7 @@ while state["worse_epochs"] < args.patience:
 
             # Compute loss for each instrument/model
             optimizer.zero_grad()
-            outputs, avg_loss = compute_loss(model, x, targets, criterion, compute_grad=True)
+            outputs, avg_loss = utils.compute_loss(model, x, targets, criterion, compute_grad=True)
 
             optimizer.step()
 
@@ -228,7 +176,7 @@ while state["worse_epochs"] < args.patience:
     writer.add_scalar("val_loss", val_loss, state["step"])
 
     # EARLY STOPPING CHECK
-    checkpoint_path = os.path.join(args.snapshot_dir, "checkpoint_" + str(state["step"]))
+    checkpoint_path = os.path.join(args.checkpoint_dir, "checkpoint_" + str(state["step"]))
     if val_loss >= state["best_loss"]:
         state["worse_epochs"] += 1
     else:
@@ -237,7 +185,7 @@ while state["worse_epochs"] < args.patience:
         state["best_loss"] = val_loss
         state["best_checkpoint"] = checkpoint_path
 
-    # SNAPSHOT
+    # CHECKPOINT
     print("Saving model...")
     utils.save_model(model, optimizer, state, checkpoint_path)
 
@@ -256,12 +204,13 @@ writer.add_scalar("test_loss", test_loss, state["step"])
 # Mir_eval metrics
 test_metrics = evaluate(args, musdb["test"], model, INSTRUMENTS)
 
-with open(os.path.join(args.snapshot_dir, "results.pkl"), "wb") as f:
+# Dump all metrics results into pickle file for later analysis if needed
+with open(os.path.join(args.checkpoint_dir, "results.pkl"), "wb") as f:
     pickle.dump(test_metrics, f)
 
+# Write most important metrics into Tensorboard log
 avg_SDRs = {inst : np.mean([np.nanmean(song[inst]["SDR"]) for song in test_metrics]) for inst in INSTRUMENTS}
 avg_SIRs = {inst : np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metrics]) for inst in INSTRUMENTS}
-
 for inst in INSTRUMENTS:
     writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])
     writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])

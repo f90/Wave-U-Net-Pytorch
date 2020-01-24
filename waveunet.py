@@ -13,23 +13,27 @@ class ConvLayer(nn.Module):
         self.kernel_size = kernel_size
         self.residual = residual
 
+        # How many channels should be normalised as one group if GroupNorm is activated
+        # WARNING: Number of channels has to be divisible by this number!
+        NORM_CHANNELS = 8
+
         if self.transpose:
             self.filter = nn.ConvTranspose1d(n_inputs, n_outputs, self.kernel_size, stride, padding=kernel_size-1)
         else:
             self.filter = nn.Conv1d(n_inputs, n_outputs, self.kernel_size, stride)
 
         if residual == "gn":
-            assert(n_outputs % 8 == 0)
+            assert(n_outputs % NORM_CHANNELS == 0)
             self.norm = nn.GroupNorm(n_outputs // 8, n_outputs)
         elif residual == "bn":
             self.norm = nn.BatchNorm1d(n_outputs, momentum=0.01)
         elif residual == "he":
-            assert (n_outputs % 8 == 0)
+            assert (n_outputs % NORM_CHANNELS == 0)
 
-            if n_inputs < 8:
+            if n_inputs < NORM_CHANNELS:
                 self.norm = nn.GroupNorm(n_inputs, n_inputs)
             else:
-                assert(n_inputs % 8 == 0)
+                assert(n_inputs % NORM_CHANNELS == 0)
                 self.norm = nn.GroupNorm(n_inputs // 8, n_inputs)
 
             if n_inputs != n_outputs:
@@ -287,6 +291,12 @@ class Waveunet(nn.Module):
             return False
 
     def forward_module(self, x, module):
+        '''
+        A forward pass through a single Wave-U-Net (multiple Wave-U-Nets might be used, one for each source)
+        :param x: Input mix
+        :param module: Network module to be used for prediction
+        :return: Source estimates
+        '''
         shortcuts = []
         out = x
 

@@ -1,0 +1,1 @@
+This directory is where the preprocessed data is saved by default in the form of HDF file, one for training, validation, and test. These files can get quite large since they are uncompressed by default, so if this is not a good place for them to go because of space issues or disk speed, use a different ``hdf_dir`` parameter for ``train.py``.

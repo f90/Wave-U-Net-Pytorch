@@ -7,7 +7,7 @@ from sortedcontainers import SortedList
 from torch.utils.data import Dataset
 import glob
 
-from utils import load
+from utils import load, write_wav
 
 def getMUSDBHQ(database_path):
     subsets = list()
@@ -36,7 +36,7 @@ def getMUSDBHQ(database_path):
                     audio, sr = load(example[stem], sr=None, mono=False)
                     stem_audio.append(audio)
                 acc_audio = np.clip(sum(stem_audio), -1.0, 1.0)
-                librosa.output.write_wav(acc_path, acc_audio, sr)
+                write_wav(acc_path, acc_audio, sr)
 
             example["accompaniment"] = acc_path
 
@@ -80,18 +80,18 @@ def getMUSDB(database_path):
             for stem in ["bass", "drums", "other", "vocals"]:
                 path = track_path + "_" + stem + ".wav"
                 audio = track.targets[stem].audio
-                librosa.output.write_wav(path, audio, rate)
+                write_wav(path, audio, rate)
                 stem_audio[stem] = audio
                 paths[stem] = path
 
             # Add other instruments to form accompaniment
             acc_audio = np.clip(sum([stem_audio[key] for key in list(stem_audio.keys()) if key != "vocals"]), -1.0, 1.0)
-            librosa.output.write_wav(acc_path, acc_audio, rate)
+            write_wav(acc_path, acc_audio, rate)
             paths["accompaniment"] = acc_path
 
             # Create mixture
             mix_audio = track.audio
-            librosa.output.write_wav(mix_path, mix_audio, rate)
+            write_wav(mix_path, mix_audio, rate)
             paths["mix"] = mix_path
 
             diff_signal = np.abs(mix_audio - acc_audio - stem_audio["vocals"])

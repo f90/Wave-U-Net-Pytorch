@@ -1,11 +1,8 @@
 import argparse
 import os
-
-import librosa
-
 import utils
 
-from evaluate import predict_song
+from test import predict_song
 from waveunet import Waveunet
 
 parser = argparse.ArgumentParser()
@@ -66,4 +63,4 @@ preds = predict_song(args, args.input, model)
 
 output_folder = os.path.dirname(args.input) if args.output is None else args.output
 for inst in preds.keys():
-    librosa.output.write_wav(os.path.join(output_folder, os.path.basename(args.input) + "_" + inst + ".wav"), preds[inst], args.sr)
+    utils.write_wav(os.path.join(output_folder, os.path.basename(args.input) + "_" + inst + ".wav"), preds[inst], args.sr)

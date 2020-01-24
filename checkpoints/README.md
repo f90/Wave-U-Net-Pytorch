@@ -1,0 +1,1 @@
+This is where checkpoint files of models will be saved by default, it's recommended to use a subfolder for each different type of model you have.
