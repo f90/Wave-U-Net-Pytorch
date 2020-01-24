@@ -28,9 +28,12 @@ parser.add_argument('--output_size', type=float, default=2.0,
                     help="Output duration")
 parser.add_argument('--strides', type=int, default=4,
                     help="Strides in Waveunet")
-parser.add_argument('--residual', type=str, default="gn", help="normal/bn/gn/he/wavenet")
-parser.add_argument('--res', type=str, default="fixed", help="fixed/learned")
-parser.add_argument('--separate', type=int, default=1, help="Train separate model for each source (1) or only one (0)")
+parser.add_argument('--conv_type', type=str, default="gn",
+                    help="Type of convolution (normal, BN-normalised, GN-normalised): normal/bn/gn")
+parser.add_argument('--res', type=str, default="fixed",
+                    help="Resampling strategy: fixed sinc-based lowpass filtering or learned conv layer: fixed/learned")
+parser.add_argument('--separate', type=int, default=1,
+                    help="Train separate model for each source (1) or only one (0)")
 parser.add_argument('--feature_growth', type=str, default="double",
                     help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)")
 
@@ -49,7 +52,7 @@ num_features = [args.features*i for i in range(1, args.levels+1)] if args.featur
 target_outputs = int(args.output_size * args.sr)
 model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=args.kernel_size,
                  target_output_size=target_outputs, depth=args.depth, strides=args.strides,
-                 residual=args.residual, res=args.res, separate=args.separate)
+                 conv_type=args.conv_type, res=args.res, separate=args.separate)
 
 if args.cuda:
     model = utils.DataParallel(model)

@@ -1,5 +1,4 @@
 import h5py
-import librosa
 import musdb
 import os
 import numpy as np
@@ -117,12 +116,24 @@ def get_musdb_folds(root_path):
     return {"train" : train_list, "val" : val_list, "test" : test_list}
 
 def crop(mix, targets, shapes):
+    '''
+    Crops target audio to the output shape required by the model given in "shapes"
+    '''
     for key in targets.keys():
         if key != "mix":
             targets[key] = targets[key][:, shapes["output_start_frame"]:shapes["output_end_frame"]]
     return mix, targets
 
 def random_amplify(mix, targets, shapes, min, max):
+    '''
+    Data augmentation by randomly amplifying sources before adding them to form a new mixture
+    :param mix: Original mixture (optional, will be discarded)
+    :param targets: Source targets
+    :param shapes: Shape dict from model
+    :param min: Minimum possible amplification
+    :param max: Maximum possible amplification
+    :return: New data point as tuple (mix, targets)
+    '''
     new_mix = 0
     for key in targets.keys():
         if key != "mix":

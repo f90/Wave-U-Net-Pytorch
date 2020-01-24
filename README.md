@@ -9,10 +9,11 @@ You can find more information about the model and results there as well.
 
 * Multi-instrument separation by default, using a separate standard Wave-U-Net for each source (can be set to one model as well)
 * More scalable to larger data: A depth parameter D can be set that employs D convolutions for each single convolution in the original Wave-U-Net  
-* More configurable: Layer type, resampling factor at each level etc. can be easily changed, and we provide a variety of ways to implement the convolutions (BN, GN, residual...)
+* More configurable: Layer type, resampling factor at each level etc. can be easily changed (different normalization, residual connections...)
 * Fast training: Preprocesses the given dataset by saving the audio into HDF files, which can be read very quickly during training, thereby avoiding slowdown due to resampling and decoding
 * Modular thanks to Pytorch: Easily replace components of the model with your own variants/layers/losses
 * Better output handling: Separate output convolution for each source estimate with linear activation so amplitudes near 1 and -1 can be easily predicted, at test time thresholding to valid amplitude range [-1,1]
+* Fixed or dynamic resampling: Either use fixed lowpass filter to avoid aliasing during resampling, or use a learnable convolution
 
 # Installation
 
