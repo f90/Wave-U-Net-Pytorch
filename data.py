@@ -6,6 +6,8 @@ from sortedcontainers import SortedList
 from torch.utils.data import Dataset
 import glob
 
+from tqdm import tqdm
+
 from utils import load, write_wav
 
 def getMUSDBHQ(database_path):
@@ -181,7 +183,8 @@ class SeparationDataset(Dataset):
                 f.attrs["channels"] = channels
                 f.attrs["instruments"] = instruments
 
-                for idx, example in enumerate(dataset[partition]):
+                print("Adding audio files to dataset (preprocessing)...")
+                for idx, example in enumerate(tqdm(dataset[partition])):
                     # Load mix
                     mix_audio, _ = load(example["mix"], sr=self.sr, mono=(self.channels == 1))
 
@@ -199,8 +202,6 @@ class SeparationDataset(Dataset):
                     grp.create_dataset("targets", shape=source_audios.shape, dtype=source_audios.dtype, data=source_audios)
                     grp.attrs["length"] = mix_audio.shape[1]
                     grp.attrs["target_length"] = source_audios.shape[1]
-
-                    print("Added audio file to dataset")
 
         # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
         with h5py.File(self.hdf_dir, "r") as f:
