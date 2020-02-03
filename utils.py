@@ -53,7 +53,7 @@ def worker_init_fn(worker_id): # This is apparently needed to ensure workers hav
 def load(path, sr=22050, mono=True, mode="numpy", offset=0.0, duration=None):
     y, curr_sr = librosa.load(path, sr=sr, mono=mono, res_type='kaiser_fast', offset=offset, duration=duration)
 
-    if mono:
+    if len(y.shape) == 1:
         # Expand channel dimension
         y = y[np.newaxis, :]
 

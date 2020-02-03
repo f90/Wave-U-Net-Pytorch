@@ -159,6 +159,7 @@ class SeparationDataset(Dataset):
         super(SeparationDataset, self).__init__()
 
         self.hdf_dataset = None
+        os.makedirs(hdf_dir, exist_ok=True)
         self.hdf_dir = os.path.join(hdf_dir, partition + ".hdf5")
 
         self.random_hops = random_hops
