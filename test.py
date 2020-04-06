@@ -44,7 +44,7 @@ def predict(audio, model):
             curr_input = torch.from_numpy(curr_input).unsqueeze(0)
 
             # Predict
-            for key, curr_targets in model(curr_input):
+            for key, curr_targets in utils.compute_output(model, curr_input).items():
                 outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets.squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)

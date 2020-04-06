@@ -5,6 +5,25 @@ import torch
 import numpy as np
 import librosa
 
+def compute_output(model, inputs):
+    '''
+    Computes outputs of model with given inputs. Does NOT allow propagating gradients! See compute_loss for training.
+    Procedure depends on whether we have one model for each source or not
+    :param model: Model to train with
+    :param compute_grad: Whether to compute gradients
+    :return: Model outputs, Average loss over batch
+    '''
+    all_outputs = {}
+
+    if model.separate:
+        for inst in model.instruments:
+            output = model(inputs, inst)
+            all_outputs[inst] = output[inst].detach().clone()
+    else:
+        all_outputs = model(inputs)
+
+    return all_outputs
+
 def compute_loss(model, inputs, targets, criterion, compute_grad=False):
     '''
     Computes gradients of model with given inputs tand targets and loss function.
@@ -22,8 +41,9 @@ def compute_loss(model, inputs, targets, criterion, compute_grad=False):
     if model.separate:
         avg_loss = 0.0
         num_sources = 0
-        for inst, output in model(inputs):
-            loss = criterion(output, targets[inst])
+        for inst in model.instruments:
+            output = model(inputs, inst)
+            loss = criterion(output[inst], targets[inst])
 
             if compute_grad:
                 loss.backward()
@@ -31,14 +51,14 @@ def compute_loss(model, inputs, targets, criterion, compute_grad=False):
             avg_loss += loss.item()
             num_sources += 1
 
-            all_outputs[inst] = output.detach().clone()
+            all_outputs[inst] = output[inst].detach().clone()
 
         avg_loss /= float(num_sources)
     else:
         loss = 0
-        for inst, output in model(inputs):
-            loss += criterion(output, targets[inst])
-            all_outputs[inst] = output.detach().clone()
+        all_outputs = model(inputs)
+        for inst in all_outputs.keys():
+            loss += criterion(all_outputs[inst], targets[inst])
 
         if compute_grad:
             loss.backward()

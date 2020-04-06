@@ -215,16 +215,17 @@ class Waveunet(nn.Module):
             out = out.clamp(min=-1.0, max=1.0)
         return out
 
-    def forward(self, x):
+    def forward(self, x, inst=None):
         curr_input_size = x.shape[-1]
         assert(curr_input_size == self.input_size) # User promises to feed the proper input himself, to get the pre-calculated (NOT the originally desired) output size
 
         if self.separate:
-            for inst, module in self.waveunets.items():
-                yield inst, self.forward_module(x, module)
+            return {inst : self.forward_module(x, self.waveunets[inst])}
         else:
             assert(len(self.waveunets) == 1)
             out = self.forward_module(x, self.waveunets["ALL"])
 
+            out_dict = {}
             for idx, inst in enumerate(self.instruments):
-                yield inst, out[:, idx * self.num_outputs:(idx + 1) * self.num_outputs]
+                out_dict[inst] = out[:, idx * self.num_outputs:(idx + 1) * self.num_outputs]
+            return out_dict
