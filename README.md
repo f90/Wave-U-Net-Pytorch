@@ -25,6 +25,7 @@ System requirements:
 * Linux-based OS
 * Python 3.6
 * [libsndfile](http://mega-nerd.com/libsndfile/) 
+* [ffmpeg](https://www.ffmpeg.org/)
 * CUDA 10.1 for GPU usage
 
 Clone the repository:
