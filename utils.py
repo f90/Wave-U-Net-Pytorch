@@ -124,6 +124,8 @@ class DataParallel(torch.nn.DataParallel):
             return getattr(self.module, name)
 
 def save_model(model, optimizer, step, path):
+    if isinstance(model, torch.nn.DataParallel):
+        model = model.module  # save state dict of wrapper module
     if len(os.path.dirname(path)) > 0 and not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     torch.save({
@@ -134,7 +136,18 @@ def save_model(model, optimizer, step, path):
 
 def load_model(model, optimizer, path):
     checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    try:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    except:
+        # work-around for loading checkpoints where DataParallel was saved instead of inner module
+        from collections import OrderedDict
+        model_state_dict_fixed = OrderedDict()
+        prefix = 'module.'
+        for k, v in checkpoint['model_state_dict'].items():
+            if k.startswith(prefix):
+                k = k[len(prefix):]
+            model_state_dict_fixed[k] = v
+        model.load_state_dict(model_state_dict_fixed)
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     step = checkpoint['step']
