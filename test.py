@@ -150,7 +150,7 @@ def validate(args, model, criterion, test_data):
 
             total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
 
-            pbar.set_description("Current loss: " + str(total_loss))
+            pbar.set_description("Current loss: {:.4f}".format(total_loss))
             pbar.update(1)
 
     return total_loss

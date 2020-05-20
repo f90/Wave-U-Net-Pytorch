@@ -6,14 +6,11 @@ from test import predict_song
 from waveunet import Waveunet
 
 def main(args):
-    INSTRUMENTS = ["bass", "drums", "other", "vocals"]
-    NUM_INSTRUMENTS = len(INSTRUMENTS)
-
     # MODEL
     num_features = [args.features*i for i in range(1, args.levels+1)] if args.feature_growth == "add" else \
                    [args.features*2**i for i in range(0, args.levels)]
     target_outputs = int(args.output_size * args.sr)
-    model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=args.kernel_size,
+    model = Waveunet(args.channels, num_features, args.channels, args.instruments, kernel_size=args.kernel_size,
                      target_output_size=target_outputs, depth=args.depth, strides=args.strides,
                      conv_type=args.conv_type, res=args.res, separate=args.separate)
 
@@ -33,16 +30,18 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--instruments', type=str, nargs='+', default=["bass", "drums", "other", "vocals"],
+                        help="List of instruments to separate (default: \"bass drums other vocals\")")
     parser.add_argument('--cuda', action='store_true',
-                        help='use CUDA (default: False)')
+                        help='Use CUDA (default: False)')
     parser.add_argument('--features', type=int, default=32,
-                        help='# of feature channels per layer')
+                        help='Number of feature channels per layer')
     parser.add_argument('--load_model', type=str, default='checkpoints/waveunet/model',
                         help='Reload a previously trained model')
     parser.add_argument('--batch_size', type=int, default=4,
                         help="Batch size")
     parser.add_argument('--levels', type=int, default=6,
-                        help="Number DS/US blocks")
+                        help="Number of DS/US blocks")
     parser.add_argument('--depth', type=int, default=1,
                         help="Number of convs per block")
     parser.add_argument('--sr', type=int, default=44100,

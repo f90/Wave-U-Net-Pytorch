@@ -18,16 +18,13 @@ from test import evaluate, validate
 from waveunet import Waveunet
 
 def main(args):
-    INSTRUMENTS = ["bass", "drums", "other", "vocals"]
-    NUM_INSTRUMENTS = len(INSTRUMENTS)
-
     #torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
 
     # MODEL
     num_features = [args.features*i for i in range(1, args.levels+1)] if args.feature_growth == "add" else \
                    [args.features*2**i for i in range(0, args.levels)]
     target_outputs = int(args.output_size * args.sr)
-    model = Waveunet(args.channels, num_features, args.channels, INSTRUMENTS, kernel_size=args.kernel_size,
+    model = Waveunet(args.channels, num_features, args.channels, args.instruments, kernel_size=args.kernel_size,
                      target_output_size=target_outputs, depth=args.depth, strides=args.strides,
                      conv_type=args.conv_type, res=args.res, separate=args.separate)
 
@@ -47,9 +44,9 @@ def main(args):
     crop_func = partial(crop, shapes=model.shapes)
     # Data augmentation function for training
     augment_func = partial(random_amplify, shapes=model.shapes, min=0.7, max=1.0)
-    train_data = SeparationDataset(musdb, "train", INSTRUMENTS, args.sr, args.channels, model.shapes, True, args.hdf_dir, audio_transform=augment_func)
-    val_data = SeparationDataset(musdb, "val", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
-    test_data = SeparationDataset(musdb, "test", INSTRUMENTS, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
+    train_data = SeparationDataset(musdb, "train", args.instruments, args.sr, args.channels, model.shapes, True, args.hdf_dir, audio_transform=augment_func)
+    val_data = SeparationDataset(musdb, "val", args.instruments, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
+    test_data = SeparationDataset(musdb, "test", args.instruments, args.sr, args.channels, model.shapes, False, args.hdf_dir, audio_transform=crop_func)
 
     dataloader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, worker_init_fn=utils.worker_init_fn)
 
@@ -151,16 +148,16 @@ def main(args):
     writer.add_scalar("test_loss", test_loss, state["step"])
 
     # Mir_eval metrics
-    test_metrics = evaluate(args, musdb["test"], model, INSTRUMENTS)
+    test_metrics = evaluate(args, musdb["test"], model, args.instruments)
 
     # Dump all metrics results into pickle file for later analysis if needed
     with open(os.path.join(args.checkpoint_dir, "results.pkl"), "wb") as f:
         pickle.dump(test_metrics, f)
 
     # Write most important metrics into Tensorboard log
-    avg_SDRs = {inst : np.mean([np.nanmean(song[inst]["SDR"]) for song in test_metrics]) for inst in INSTRUMENTS}
-    avg_SIRs = {inst : np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metrics]) for inst in INSTRUMENTS}
-    for inst in INSTRUMENTS:
+    avg_SDRs = {inst : np.mean([np.nanmean(song[inst]["SDR"]) for song in test_metrics]) for inst in args.instruments}
+    avg_SIRs = {inst : np.mean([np.nanmean(song[inst]["SIR"]) for song in test_metrics]) for inst in args.instruments}
+    for inst in args.instruments:
         writer.add_scalar("test_SDR_" + inst, avg_SDRs[inst], state["step"])
         writer.add_scalar("test_SIR_" + inst, avg_SIRs[inst], state["step"])
     overall_SDR = np.mean([v for v in avg_SDRs.values()])
@@ -172,12 +169,14 @@ def main(args):
 if __name__ == '__main__':
     ## TRAIN PARAMETERS
     parser = argparse.ArgumentParser()
+    parser.add_argument('--instruments', type=str, nargs='+', default=["bass", "drums", "other", "vocals"],
+                        help="List of instruments to separate (default: \"bass drums other vocals\")")
     parser.add_argument('--cuda', action='store_true',
-                        help='use CUDA (default: False)')
+                        help='Use CUDA (default: False)')
     parser.add_argument('--num_workers', type=int, default=1,
                         help='Number of data loader worker threads (default: 1)')
     parser.add_argument('--features', type=int, default=32,
-                        help='# of feature channels per layer')
+                        help='Number of feature channels per layer')
     parser.add_argument('--log_dir', type=str, default='logs/waveunet',
                         help='Folder to write logs into')
     parser.add_argument('--dataset_dir', type=str, default="/mnt/windaten/Datasets/MUSDB18HQ",
@@ -189,15 +188,15 @@ if __name__ == '__main__':
     parser.add_argument('--load_model', type=str, default=None,
                         help='Reload a previously trained model (whole task model)')
     parser.add_argument('--lr', type=float, default=1e-3,
-                        help='initial learning rate (default: 5e-4)')
+                        help='Initial learning rate in LR cycle (default: 1e-3)')
     parser.add_argument('--min_lr', type=float, default=5e-5,
-                        help='initial learning rate (default: 5e-4)')
+                        help='Minimum learning rate in LR cycle (default: 5e-5)')
     parser.add_argument('--cycles', type=int, default=2,
                         help='Number of LR cycles per epoch')
     parser.add_argument('--batch_size', type=int, default=4,
                         help="Batch size")
     parser.add_argument('--levels', type=int, default=6,
-                        help="Number DS/US blocks")
+                        help="Number of DS/US blocks")
     parser.add_argument('--depth', type=int, default=1,
                         help="Number of convs per block")
     parser.add_argument('--sr', type=int, default=44100,
