@@ -21,6 +21,7 @@ def main(args):
 
     print("Loading model from checkpoint " + str(args.load_model))
     state = utils.load_model(model, None, args.load_model)
+    print('Step', state['step'])
 
     preds = predict_song(args, args.input, model)
 
