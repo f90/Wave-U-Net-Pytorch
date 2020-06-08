@@ -129,20 +129,24 @@ def crop(mix, targets, shapes):
 def random_amplify(mix, targets, shapes, min, max):
     '''
     Data augmentation by randomly amplifying sources before adding them to form a new mixture
-    :param mix: Original mixture (optional, will be discarded)
+    :param mix: Original mixture
     :param targets: Source targets
     :param shapes: Shape dict from model
     :param min: Minimum possible amplification
     :param max: Maximum possible amplification
     :return: New data point as tuple (mix, targets)
     '''
-    new_mix = 0
+    residual = mix  # start with original mix
+    for key in targets.keys():
+        if key != "mix":
+            residual -= targets[key]  # subtract all instruments (output is zero if all instruments add to mix)
+    mix = residual * np.random.uniform(min, max)  # also apply gain data augmentation to residual
     for key in targets.keys():
         if key != "mix":
             targets[key] = targets[key] * np.random.uniform(min, max)
-            new_mix += targets[key]
-    new_mix = np.clip(new_mix, -1.0, 1.0)
-    return crop(new_mix, targets, shapes)
+            mix += targets[key]  # add instrument with gain data augmentation to mix
+    mix = np.clip(mix, -1.0, 1.0)
+    return crop(mix, targets, shapes)
 
 class SeparationDataset(Dataset):
     def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):
