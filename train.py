@@ -72,7 +72,7 @@ def main(args):
     # LOAD MODEL CHECKPOINT IF DESIRED
     if args.load_model is not None:
         print("Continuing training full model from checkpoint " + str(args.load_model))
-        state = utils.load_model(model, optimizer, args.load_model)
+        state = utils.load_model(model, optimizer, args.load_model, args.cuda)
 
     print('TRAINING START')
     while state["worse_epochs"] < args.patience:
@@ -142,7 +142,7 @@ def main(args):
     print("TESTING")
 
     # Load best model based on validation loss
-    state = utils.load_model(model, None, state["best_checkpoint"])
+    state = utils.load_model(model, None, state["best_checkpoint"], args.cuda)
     test_loss = validate(args, model, criterion, test_data)
     print("TEST FINISHED: LOSS: " + str(test_loss))
     writer.add_scalar("test_loss", test_loss, state["step"])

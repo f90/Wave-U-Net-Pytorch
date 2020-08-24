@@ -134,10 +134,13 @@ def save_model(model, optimizer, state, path):
         'state': state,  # state of training loop (was 'step')
     }, path)
 
-def load_model(model, optimizer, path):
+def load_model(model, optimizer, path, cuda):
     if isinstance(model, torch.nn.DataParallel):
         model = model.module  # load state dict of wrapped module
-    checkpoint = torch.load(path)
+    if cuda:
+        checkpoint = torch.load(path)
+    else:
+        checkpoint = torch.load(path, map_location='cpu')
     try:
         model.load_state_dict(checkpoint['model_state_dict'])
     except:
@@ -159,8 +162,8 @@ def load_model(model, optimizer, path):
         state = {'step': checkpoint['step']}
     return state
 
-def load_latest_model_from(model, optimizer, location):
+def load_latest_model_from(model, optimizer, location, cuda):
     files = [location + "/" + f for f in os.listdir(location)]
     newest_file = max(files, key=os.path.getctime)
     print("load model " + newest_file)
-    return load_model(model, optimizer, newest_file)
+    return load_model(model, optimizer, newest_file, cuda)
