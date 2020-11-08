@@ -1,6 +1,8 @@
 import argparse
 import os
-import utils
+
+import data.utils
+import model.utils as model_utils
 
 from test import predict_song
 from model.waveunet import Waveunet
@@ -15,19 +17,19 @@ def main(args):
                      conv_type=args.conv_type, res=args.res, separate=args.separate)
 
     if args.cuda:
-        model = utils.DataParallel(model)
+        model = model_utils.DataParallel(model)
         print("move model to gpu")
         model.cuda()
 
     print("Loading model from checkpoint " + str(args.load_model))
-    state = utils.load_model(model, None, args.load_model, args.cuda)
+    state = model_utils.load_model(model, None, args.load_model, args.cuda)
     print('Step', state['step'])
 
     preds = predict_song(args, args.input, model)
 
     output_folder = os.path.dirname(args.input) if args.output is None else args.output
     for inst in preds.keys():
-        utils.write_wav(os.path.join(output_folder, os.path.basename(args.input) + "_" + inst + ".wav"), preds[inst], args.sr)
+        data.utils.write_wav(os.path.join(output_folder, os.path.basename(args.input) + "_" + inst + ".wav"), preds[inst], args.sr)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

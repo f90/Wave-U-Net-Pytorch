@@ -4,9 +4,11 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
+import data.utils
+import model.utils as model_utils
 import utils
 
-def compute_output(model, inputs):
+def compute_model_output(model, inputs):
     '''
     Computes outputs of model with given inputs. Does NOT allow propagating gradients! See compute_loss for training.
     Procedure depends on whether we have one model for each source or not
@@ -26,6 +28,12 @@ def compute_output(model, inputs):
     return all_outputs
 
 def predict(audio, model):
+    '''
+    Predict sources for a given audio input signal, with a given model. Audio is split into chunks to make predictions on each chunk before they are concatenated.
+    :param audio: Audio input tensor, either Pytorch tensor or numpy array
+    :param model: Pytorch model
+    :return: Source predictions, dictionary with source names as keys
+    '''
     if isinstance(audio, torch.Tensor):
         is_cuda = audio.is_cuda()
         audio = audio.detach().cpu().numpy()
@@ -53,7 +61,6 @@ def predict(audio, model):
     # Iterate over mixture magnitudes, fetch network prediction
     with torch.no_grad():
         for target_start_pos in range(0, target_outputs, model.shapes["output_frames"]):
-
             # Prepare mixture excerpt by selecting time interval
             curr_input = audio[:, target_start_pos:target_start_pos + model.shapes["input_frames"]] # Since audio was front-padded input of [targetpos:targetpos+inputframes] actually predicts [targetpos:targetpos+outputframes] target range
 
@@ -61,7 +68,7 @@ def predict(audio, model):
             curr_input = torch.from_numpy(curr_input).unsqueeze(0)
 
             # Predict
-            for key, curr_targets in compute_output(model, curr_input).items():
+            for key, curr_targets in compute_model_output(model, curr_input).items():
                 outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets.squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)
@@ -74,10 +81,18 @@ def predict(audio, model):
     return outputs
 
 def predict_song(args, audio_path, model):
+    '''
+    Predicts sources for an audio file for which the file path is given, using a given model.
+    Takes care of resampling the input audio to the models sampling rate and resampling predictions back to input sampling rate.
+    :param args: Options dictionary
+    :param audio_path: Path to mixture audio file
+    :param model: Pytorch model
+    :return: Source estimates given as dictionary with keys as source names
+    '''
     model.eval()
 
     # Load mixture in original sampling rate
-    mix_audio, mix_sr = utils.load(audio_path, sr=None, mono=False)
+    mix_audio, mix_sr = data.utils.load(audio_path, sr=None, mono=False)
     mix_channels = mix_audio.shape[0]
     mix_len = mix_audio.shape[1]
 
@@ -91,12 +106,12 @@ def predict_song(args, audio_path, model):
             assert(mix_channels == args.channels)
 
     # resample to model sampling rate
-    mix_audio = utils.resample(mix_audio, mix_sr, args.sr)
+    mix_audio = data.utils.resample(mix_audio, mix_sr, args.sr)
 
     sources = predict(mix_audio, model)
 
     # Resample back to mixture sampling rate in case we had model on different sampling rate
-    sources = {key : utils.resample(sources[key], args.sr, mix_sr) for key in sources.keys()}
+    sources = {key : data.utils.resample(sources[key], args.sr, mix_sr) for key in sources.keys()}
 
     # In case we had to pad the mixture at the end, or we have a few samples too many due to inconsistent down- and upsamṕling, remove those samples from source prediction now
     for key in sources.keys():
@@ -123,6 +138,14 @@ def predict_song(args, audio_path, model):
     return sources
 
 def evaluate(args, dataset, model, instruments):
+    '''
+    Evaluates a given model on a given dataset
+    :param args: Options dict
+    :param dataset: Dataset object
+    :param model: Pytorch model
+    :param instruments: List of source names
+    :return: Performance metric dictionary, list with each element describing one dataset sample's results
+    '''
     perfs = list()
     model.eval()
     with torch.no_grad():
@@ -130,7 +153,7 @@ def evaluate(args, dataset, model, instruments):
             print("Evaluating " + example["mix"])
 
             # Load source references in their original sr and channel number
-            target_sources = np.stack([utils.load(example[instrument], sr=None, mono=False)[0].T for instrument in instruments])
+            target_sources = np.stack([data.utils.load(example[instrument], sr=None, mono=False)[0].T for instrument in instruments])
 
             # Predict using mixture
             pred_sources = predict_song(args, example["mix"], model)
@@ -147,6 +170,14 @@ def evaluate(args, dataset, model, instruments):
 
 
 def validate(args, model, criterion, test_data):
+    '''
+    Iterate with a given model over a given test dataset and compute the desired loss
+    :param args: Options dictionary
+    :param model: Pytorch model
+    :param criterion: Loss function to use (similar to Pytorch criterions)
+    :param test_data: Test dataset (Pytorch dataset)
+    :return:
+    '''
     # PREPARE DATA
     dataloader = torch.utils.data.DataLoader(test_data,
                                              batch_size=args.batch_size,
@@ -163,7 +194,7 @@ def validate(args, model, criterion, test_data):
                 for k in list(targets.keys()):
                     targets[k] = targets[k].cuda()
 
-            _, avg_loss = utils.compute_loss(model, x, targets, criterion)
+            _, avg_loss = model_utils.compute_loss(model, x, targets, criterion)
 
             total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
 

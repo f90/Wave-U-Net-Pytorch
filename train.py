@@ -12,6 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from tqdm import tqdm
 
+import model.utils as model_utils
 import utils
 from data.dataset import SeparationDataset
 from data.musdb import get_musdb_folds
@@ -31,7 +32,7 @@ def main(args):
                      conv_type=args.conv_type, res=args.res, separate=args.separate)
 
     if args.cuda:
-        model = utils.DataParallel(model)
+        model = model_utils.DataParallel(model)
         print("move model to gpu")
         model.cuda()
 
@@ -74,7 +75,7 @@ def main(args):
     # LOAD MODEL CHECKPOINT IF DESIRED
     if args.load_model is not None:
         print("Continuing training full model from checkpoint " + str(args.load_model))
-        state = utils.load_model(model, optimizer, args.load_model, args.cuda)
+        state = model_utils.load_model(model, optimizer, args.load_model, args.cuda)
 
     print('TRAINING START')
     while state["worse_epochs"] < args.patience:
@@ -97,7 +98,7 @@ def main(args):
 
                 # Compute loss for each instrument/model
                 optimizer.zero_grad()
-                outputs, avg_loss = utils.compute_loss(model, x, targets, criterion, compute_grad=True)
+                outputs, avg_loss = model_utils.compute_loss(model, x, targets, criterion, compute_grad=True)
 
                 optimizer.step()
 
@@ -135,7 +136,7 @@ def main(args):
 
         # CHECKPOINT
         print("Saving model...")
-        utils.save_model(model, optimizer, state, checkpoint_path)
+        model_utils.save_model(model, optimizer, state, checkpoint_path)
 
         state["epochs"] += 1
 
@@ -144,7 +145,7 @@ def main(args):
     print("TESTING")
 
     # Load best model based on validation loss
-    state = utils.load_model(model, None, state["best_checkpoint"], args.cuda)
+    state = model_utils.load_model(model, None, state["best_checkpoint"], args.cuda)
     test_loss = validate(args, model, criterion, test_data)
     print("TEST FINISHED: LOSS: " + str(test_loss))
     writer.add_scalar("test_loss", test_loss, state["step"])

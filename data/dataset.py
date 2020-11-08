@@ -6,7 +6,8 @@ from sortedcontainers import SortedList
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils import load
+from data.utils import load
+
 
 class SeparationDataset(Dataset):
     def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):

@@ -3,7 +3,8 @@ import os
 import numpy as np
 import glob
 
-from utils import load, write_wav
+from data.utils import load, write_wav
+
 
 def get_musdbhq(database_path):
     '''
