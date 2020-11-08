@@ -1,12 +1,29 @@
 import museval
 from tqdm import tqdm
 
-import utils
-
 import numpy as np
 import torch
 
-from utils import compute_loss
+import utils
+
+def compute_output(model, inputs):
+    '''
+    Computes outputs of model with given inputs. Does NOT allow propagating gradients! See compute_loss for training.
+    Procedure depends on whether we have one model for each source or not
+    :param model: Model to train with
+    :param compute_grad: Whether to compute gradients
+    :return: Model outputs, Average loss over batch
+    '''
+    all_outputs = {}
+
+    if model.separate:
+        for inst in model.instruments:
+            output = model(inputs, inst)
+            all_outputs[inst] = output[inst].detach().clone()
+    else:
+        all_outputs = model(inputs)
+
+    return all_outputs
 
 def predict(audio, model):
     if isinstance(audio, torch.Tensor):
@@ -44,7 +61,7 @@ def predict(audio, model):
             curr_input = torch.from_numpy(curr_input).unsqueeze(0)
 
             # Predict
-            for key, curr_targets in utils.compute_output(model, curr_input).items():
+            for key, curr_targets in compute_output(model, curr_input).items():
                 outputs[key][:,target_start_pos:target_start_pos+model.shapes["output_frames"]] = curr_targets.squeeze(0).cpu().numpy()
 
     # Crop to expected length (since we padded to handle the frame shift)
@@ -146,7 +163,7 @@ def validate(args, model, criterion, test_data):
                 for k in list(targets.keys()):
                     targets[k] = targets[k].cuda()
 
-            _, avg_loss = compute_loss(model, x, targets, criterion)
+            _, avg_loss = utils.compute_loss(model, x, targets, criterion)
 
             total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
 

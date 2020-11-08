@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 
-from waveunet_utils import crop, Resample1d, ConvLayer
+from model.crop import centre_crop
+from model.resample import Resample1d
+from model.conv import ConvLayer
 
 class UpsamplingBlock(nn.Module):
     def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, conv_type, res):
@@ -29,11 +31,11 @@ class UpsamplingBlock(nn.Module):
             upsampled = conv(upsampled)
 
         # Prepare shortcut connection
-        combined = crop(shortcut, upsampled)
+        combined = centre_crop(shortcut, upsampled)
 
         # Combine high- and low-level features
         for conv in self.post_shortcut_convs:
-            combined = conv(torch.cat([combined, crop(upsampled, combined)], dim=1))
+            combined = conv(torch.cat([combined, centre_crop(upsampled, combined)], dim=1))
         return combined
 
     def get_output_size(self, input_size):

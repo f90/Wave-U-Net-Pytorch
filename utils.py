@@ -5,25 +5,6 @@ import torch
 import numpy as np
 import librosa
 
-def compute_output(model, inputs):
-    '''
-    Computes outputs of model with given inputs. Does NOT allow propagating gradients! See compute_loss for training.
-    Procedure depends on whether we have one model for each source or not
-    :param model: Model to train with
-    :param compute_grad: Whether to compute gradients
-    :return: Model outputs, Average loss over batch
-    '''
-    all_outputs = {}
-
-    if model.separate:
-        for inst in model.instruments:
-            output = model(inputs, inst)
-            all_outputs[inst] = output[inst].detach().clone()
-    else:
-        all_outputs = model(inputs)
-
-    return all_outputs
-
 def compute_loss(model, inputs, targets, criterion, compute_grad=False):
     '''
     Computes gradients of model with given inputs and targets and loss function.
@@ -158,7 +139,7 @@ def load_model(model, optimizer, path, cuda):
     if 'state' in checkpoint:
         state = checkpoint['state']
     else:
-        # older checkpoitns only store step, rest of state won't be there
+        # older checkpoints only store step, rest of state won't be there
         state = {'step': checkpoint['step']}
     return state
 

@@ -3,7 +3,7 @@ import os
 import utils
 
 from test import predict_song
-from waveunet import Waveunet
+from model.waveunet import Waveunet
 
 def main(args):
     # MODEL

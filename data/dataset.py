@@ -1,157 +1,17 @@
-import h5py
-import musdb
 import os
+
+import h5py
 import numpy as np
 from sortedcontainers import SortedList
 from torch.utils.data import Dataset
-import glob
-
 from tqdm import tqdm
 
-from utils import load, write_wav
-
-def getMUSDBHQ(database_path):
-    subsets = list()
-
-    for subset in ["train", "test"]:
-        print("Loading " + subset + " set...")
-        tracks = glob.glob(os.path.join(database_path, subset, "*"))
-        samples = list()
-
-        # Go through tracks
-        for track_folder in sorted(tracks):
-            # Skip track if mixture is already written, assuming this track is done already
-            example = dict()
-            for stem in ["mix", "bass", "drums", "other", "vocals"]:
-                filename = stem if stem != "mix" else "mixture"
-                audio_path = os.path.join(track_folder, filename + ".wav")
-                example[stem] = audio_path
-
-            # Add other instruments to form accompaniment
-            acc_path = os.path.join(track_folder, "accompaniment.wav")
-
-            if not os.path.exists(acc_path):
-                print("Writing accompaniment to " + track_folder)
-                stem_audio = []
-                for stem in ["bass", "drums", "other"]:
-                    audio, sr = load(example[stem], sr=None, mono=False)
-                    stem_audio.append(audio)
-                acc_audio = np.clip(sum(stem_audio), -1.0, 1.0)
-                write_wav(acc_path, acc_audio, sr)
-
-            example["accompaniment"] = acc_path
-
-            samples.append(example)
-
-        subsets.append(samples)
-
-    return subsets
-
-def getMUSDB(database_path):
-    mus = musdb.DB(root=database_path, is_wav=False)
-
-    subsets = list()
-
-    for subset in ["train", "test"]:
-        tracks = mus.load_mus_tracks(subset)
-        samples = list()
-
-        # Go through tracks
-        for track in sorted(tracks):
-            # Skip track if mixture is already written, assuming this track is done already
-            track_path = track.path[:-4]
-            mix_path = track_path + "_mix.wav"
-            acc_path = track_path + "_accompaniment.wav"
-            if os.path.exists(mix_path):
-                print("WARNING: Skipping track " + mix_path + " since it exists already")
-
-                # Add paths and then skip
-                paths = {"mix" : mix_path, "accompaniment" : acc_path}
-                paths.update({key : track_path + "_" + key + ".wav" for key in ["bass", "drums", "other", "vocals"]})
-
-                samples.append(paths)
-
-                continue
-
-            rate = track.rate
-
-            # Go through each instrument
-            paths = dict()
-            stem_audio = dict()
-            for stem in ["bass", "drums", "other", "vocals"]:
-                path = track_path + "_" + stem + ".wav"
-                audio = track.targets[stem].audio
-                write_wav(path, audio, rate)
-                stem_audio[stem] = audio
-                paths[stem] = path
-
-            # Add other instruments to form accompaniment
-            acc_audio = np.clip(sum([stem_audio[key] for key in list(stem_audio.keys()) if key != "vocals"]), -1.0, 1.0)
-            write_wav(acc_path, acc_audio, rate)
-            paths["accompaniment"] = acc_path
-
-            # Create mixture
-            mix_audio = track.audio
-            write_wav(mix_path, mix_audio, rate)
-            paths["mix"] = mix_path
-
-            diff_signal = np.abs(mix_audio - acc_audio - stem_audio["vocals"])
-            print("Maximum absolute deviation from source additivity constraint: " + str(np.max(diff_signal)))# Check if acc+vocals=mix
-            print("Mean absolute deviation from source additivity constraint:    " + str(np.mean(diff_signal)))
-
-            samples.append(paths)
-
-        subsets.append(samples)
-
-    print("DONE preparing dataset!")
-    return subsets
-
-def get_musdb_folds(root_path):
-    dataset = getMUSDBHQ(root_path)
-    train_val_list = dataset[0]
-    test_list = dataset[1]
-
-    np.random.seed(1337)
-    train_list = np.random.choice(train_val_list, 75, replace=False)
-    val_list = [elem for elem in train_val_list if elem not in train_list]
-    print("First training song: " + str(train_list[0]))
-    return {"train" : train_list, "val" : val_list, "test" : test_list}
-
-def crop(mix, targets, shapes):
-    '''
-    Crops target audio to the output shape required by the model given in "shapes"
-    '''
-    for key in targets.keys():
-        if key != "mix":
-            targets[key] = targets[key][:, shapes["output_start_frame"]:shapes["output_end_frame"]]
-    return mix, targets
-
-def random_amplify(mix, targets, shapes, min, max):
-    '''
-    Data augmentation by randomly amplifying sources before adding them to form a new mixture
-    :param mix: Original mixture
-    :param targets: Source targets
-    :param shapes: Shape dict from model
-    :param min: Minimum possible amplification
-    :param max: Maximum possible amplification
-    :return: New data point as tuple (mix, targets)
-    '''
-    residual = mix  # start with original mix
-    for key in targets.keys():
-        if key != "mix":
-            residual -= targets[key]  # subtract all instruments (output is zero if all instruments add to mix)
-    mix = residual * np.random.uniform(min, max)  # also apply gain data augmentation to residual
-    for key in targets.keys():
-        if key != "mix":
-            targets[key] = targets[key] * np.random.uniform(min, max)
-            mix += targets[key]  # add instrument with gain data augmentation to mix
-    mix = np.clip(mix, -1.0, 1.0)
-    return crop(mix, targets, shapes)
+from utils import load
 
 class SeparationDataset(Dataset):
     def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):
         '''
-
+        Initialises a source separation dataset
         :param data: HDF audio data object
         :param input_size: Number of input samples for each example
         :param context_front: Number of extra context samples to prepend to input

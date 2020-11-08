@@ -13,9 +13,11 @@ from torch.optim import Adam
 from tqdm import tqdm
 
 import utils
-from data import get_musdb_folds, SeparationDataset, random_amplify, crop
+from data.dataset import SeparationDataset
+from data.musdb import get_musdb_folds
+from data.utils import crop_targets, random_amplify
 from test import evaluate, validate
-from waveunet import Waveunet
+from model.waveunet import Waveunet
 
 def main(args):
     #torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
@@ -41,7 +43,7 @@ def main(args):
     ### DATASET
     musdb = get_musdb_folds(args.dataset_dir)
     # If not data augmentation, at least crop targets to fit model output shape
-    crop_func = partial(crop, shapes=model.shapes)
+    crop_func = partial(crop_targets, shapes=model.shapes)
     # Data augmentation function for training
     augment_func = partial(random_amplify, shapes=model.shapes, min=0.7, max=1.0)
     train_data = SeparationDataset(musdb, "train", args.instruments, args.sr, args.channels, model.shapes, True, args.hdf_dir, audio_transform=augment_func)
