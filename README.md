@@ -25,7 +25,9 @@ GPU strongly recommended to avoid very long training times.
 System requirements:
 * Linux-based OS
 * Python 3.6
-* [libsndfile](http://mega-nerd.com/libsndfile/)
+
+* [libsndfile](http://mega-nerd.com/libsndfile/) 
+
 * [ffmpeg](https://www.ffmpeg.org/)
 * CUDA 10.1 for GPU usage
 
@@ -69,8 +71,9 @@ You can of course use your own datasets for training, but for this you would nee
 # Training the models
 
 To train a Wave-U-Net, the basic command to use is
+
 ```
-python3.6 train.py --dataset_dir /PATH/TO/MUSDB18HQ
+python3.6 train.py --dataset_dir /PATH/TO/MUSDB18HQ 
 ```
 where the path to MUSDB18HQ dataset needs to be specified, which contains the ``train`` and ``test`` subfolders.
 
