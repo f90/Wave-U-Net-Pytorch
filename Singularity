@@ -25,8 +25,8 @@ From: nvidia/cuda:10.1-cudnn7-devel-ubuntu18.04
     pip3 install pipenv
 
     # Install Python modules.
-    pip3 install future numpy librosa musdb museval h5py tqdm sortedcontainers soundfile
-    pip3 install torch==1.4.0 torchvision==0.5.0 tensorboard
+    pip3 install future numpy librosa==0.8.1 musdb==0.4.0 museval==0.4.0 h5py tqdm sortedcontainers soundfile
+    pip3 install torch==1.10.0 torchvision==0.11.1 tensorboard==2.7.0
 
 %environment
     # Pipenv requires a certain terminal encoding.
