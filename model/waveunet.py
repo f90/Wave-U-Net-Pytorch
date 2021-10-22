@@ -115,34 +115,25 @@ class Waveunet(nn.Module):
         # Only odd filter kernels allowed
         assert(kernel_size % 2 == 1)
 
-        self.waveunets = nn.ModuleDict()
+        self.downsampling_blocks = nn.ModuleList()
+        self.upsampling_blocks = nn.ModuleList()
 
-        model_list = instruments if separate else ["ALL"]
-        # Create a model for each source if we separate sources separately, otherwise only one (model_list=["ALL"])
-        for instrument in model_list:
-            module = nn.Module()
+        for i in range(self.num_levels - 1):
+            in_ch = num_inputs if i == 0 else num_channels[i]
 
-            module.downsampling_blocks = nn.ModuleList()
-            module.upsampling_blocks = nn.ModuleList()
+            self.downsampling_blocks.append(
+                DownsamplingBlock(in_ch, num_channels[i], num_channels[i+1], kernel_size, strides, depth, conv_type, res))
 
-            for i in range(self.num_levels - 1):
-                in_ch = num_inputs if i == 0 else num_channels[i]
+        for i in range(0, self.num_levels - 1):
+            self.upsampling_blocks.append(
+                UpsamplingBlock(num_channels[-1-i], num_channels[-2-i], num_channels[-2-i], kernel_size, strides, depth, conv_type, res))
 
-                module.downsampling_blocks.append(
-                    DownsamplingBlock(in_ch, num_channels[i], num_channels[i+1], kernel_size, strides, depth, conv_type, res))
+        self.bottlenecks = nn.ModuleList(
+            [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, conv_type) for _ in range(depth)])
 
-            for i in range(0, self.num_levels - 1):
-                module.upsampling_blocks.append(
-                    UpsamplingBlock(num_channels[-1-i], num_channels[-2-i], num_channels[-2-i], kernel_size, strides, depth, conv_type, res))
-
-            module.bottlenecks = nn.ModuleList(
-                [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, conv_type) for _ in range(depth)])
-
-            # Output conv
-            outputs = num_outputs if separate else num_outputs * len(instruments)
-            module.output_conv = nn.Conv1d(num_channels[0], outputs, 1)
-
-            self.waveunets[instrument] = module
+        # Output conv
+        outputs = num_outputs if separate else num_outputs * len(instruments)
+        self.output_conv = nn.Conv1d(num_channels[0], outputs, 1)
 
         self.set_output_size(target_output_size)
 
@@ -169,18 +160,17 @@ class Waveunet(nn.Module):
             bottleneck += 1
 
     def check_padding_for_bottleneck(self, bottleneck, target_output_size):
-        module = self.waveunets[[k for k in self.waveunets.keys()][0]]
         try:
             curr_size = bottleneck
-            for idx, block in enumerate(module.upsampling_blocks):
+            for idx, block in enumerate(self.upsampling_blocks):
                 curr_size = block.get_output_size(curr_size)
             output_size = curr_size
 
             # Bottleneck-Conv
             curr_size = bottleneck
-            for block in reversed(module.bottlenecks):
+            for block in reversed(self.bottlenecks):
                 curr_size = block.get_input_size(curr_size)
-            for idx, block in enumerate(reversed(module.downsampling_blocks)):
+            for idx, block in enumerate(reversed(self.downsampling_blocks)):
                 curr_size = block.get_input_size(curr_size)
 
             assert(output_size >= target_output_size)
@@ -188,46 +178,28 @@ class Waveunet(nn.Module):
         except AssertionError as e:
             return False
 
-    def forward_module(self, x, module):
-        '''
-        A forward pass through a single Wave-U-Net (multiple Wave-U-Nets might be used, one for each source)
-        :param x: Input mix
-        :param module: Network module to be used for prediction
-        :return: Source estimates
-        '''
+    def forward(self, mix):
+        curr_input_size = mix.shape[-1]
+        assert(curr_input_size == self.input_size) # User promises to feed the proper input himself, to get the pre-calculated (NOT the originally desired) output size
+
         shortcuts = []
-        out = x
+        out = mix
 
         # DOWNSAMPLING BLOCKS
-        for block in module.downsampling_blocks:
+        for block in self.downsampling_blocks:
             out, short = block(out)
             shortcuts.append(short)
 
         # BOTTLENECK CONVOLUTION
-        for conv in module.bottlenecks:
+        for conv in self.bottlenecks:
             out = conv(out)
 
         # UPSAMPLING BLOCKS
-        for idx, block in enumerate(module.upsampling_blocks):
+        for idx, block in enumerate(self.upsampling_blocks):
             out = block(out, shortcuts[-1 - idx])
 
         # OUTPUT CONV
-        out = module.output_conv(out)
+        out = self.output_conv(out)
         if not self.training:  # At test time clip predictions to valid amplitude range
             out = out.clamp(min=-1.0, max=1.0)
         return out
-
-    def forward(self, x, inst=None):
-        curr_input_size = x.shape[-1]
-        assert(curr_input_size == self.input_size) # User promises to feed the proper input himself, to get the pre-calculated (NOT the originally desired) output size
-
-        if self.separate:
-            return {inst : self.forward_module(x, self.waveunets[inst])}
-        else:
-            assert(len(self.waveunets) == 1)
-            out = self.forward_module(x, self.waveunets["ALL"])
-
-            out_dict = {}
-            for idx, inst in enumerate(self.instruments):
-                out_dict[inst] = out[:, idx * self.num_outputs:(idx + 1) * self.num_outputs]
-            return out_dict

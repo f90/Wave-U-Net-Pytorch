@@ -187,16 +187,16 @@ def validate(args, model, criterion, test_data):
     # VALIDATE
     model.eval()
     total_loss = 0.
-    with tqdm(total=len(test_data) // args.batch_size) as pbar, torch.no_grad():
-        for example_num, (x, targets) in enumerate(dataloader):
+    with tqdm() as pbar, torch.no_grad():
+        for example_num, (mix, targets) in enumerate(dataloader):
             if args.cuda:
-                x = x.cuda()
-                for k in list(targets.keys()):
-                    targets[k] = targets[k].cuda()
+                mix = mix.cuda()
+                targets = targets.cuda()
 
-            _, avg_loss = model_utils.compute_loss(model, x, targets, criterion)
+            outputs = model(mix)
+            loss = criterion(outputs, targets)
 
-            total_loss += (1. / float(example_num + 1)) * (avg_loss - total_loss)
+            total_loss += (1. / float(example_num + 1)) * (loss - total_loss)
 
             pbar.set_description("Current loss: {:.4f}".format(total_loss))
             pbar.update(1)

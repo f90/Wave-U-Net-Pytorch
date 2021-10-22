@@ -1,152 +1,157 @@
-import os
+import math
+import random
+from typing import List, Dict
 
-import h5py
 import numpy as np
-from sortedcontainers import SortedList
-from torch.utils.data import Dataset
-from tqdm import tqdm
+import torch
+from torch.utils.data import Dataset, IterableDataset
 
 from data.utils import load
 
 
-class SeparationDataset(Dataset):
-    def __init__(self, dataset, partition, instruments, sr, channels, shapes, random_hops, hdf_dir, audio_transform=None, in_memory=False):
-        '''
-        Initialises a source separation dataset
-        :param data: HDF audio data object
-        :param input_size: Number of input samples for each example
-        :param context_front: Number of extra context samples to prepend to input
-        :param context_back: NUmber of extra context samples to append to input
-        :param hop_size: Skip hop_size - 1 sample positions in the audio for each example (subsampling the audio)
-        :param random_hops: If False, sample examples evenly from whole audio signal according to hop_size parameter. If True, randomly sample a position from the audio
-        '''
+def center_crop_audio(audio, output_frames: int):
+    if len(audio.shape) == 1:
+        target_len = audio.shape[0]
+    elif len(audio.shape) == 2:
+        target_len = audio.shape[1]
+    else:
+        raise SyntaxError(
+            f"Wrong input audio shape {audio.shape}, expected 1 or 2 dimensions!"
+        )
 
-        super(SeparationDataset, self).__init__()
+    assert (target_len - output_frames) % 2 == 0
+    border_len = (target_len - output_frames) // 2
 
-        self.hdf_dataset = None
-        os.makedirs(hdf_dir, exist_ok=True)
-        self.hdf_dir = os.path.join(hdf_dir, partition + ".hdf5")
+    if len(audio.shape) == 1:
+        return audio[border_len:-border_len]
+    else:
+        return audio[:, border_len:-border_len]
 
-        self.random_hops = random_hops
+
+def extract_random_window(audio, chunk_length: int):
+    if len(audio.shape) == 1:
+        audio_len = audio.shape[0]
+    elif len(audio.shape) == 2:
+        audio_len = audio.shape[1]
+    else:
+        raise SyntaxError(
+            f"Wrong input audio shape {audio.shape}, expected 1 or 2 dimensions!"
+        )
+
+    start = np.random.randint(0, audio_len - chunk_length + 1)
+
+    if len(audio.shape) == 1:
+        return audio[start : start + chunk_length], start
+    else:
+        return audio[:, start : start + chunk_length], start
+
+
+class SeparationDataset(IterableDataset):
+    def __init__(
+        self,
+        audio_paths: List[Dict[str, str]],
+        instruments: List[str],
+        sr: int,
+        channels: int,
+        input_frames: int,
+        output_frames: int,
+        chunks_per_audio: int,
+        randomize: bool = False,
+    ):
+        self.audio_paths = audio_paths
+        self.instruments = instruments
+        self.randomize = randomize
+
+        self.input_frames = input_frames
+        self.output_frames = output_frames
+        self.chunks_per_audio = chunks_per_audio
         self.sr = sr
         self.channels = channels
-        self.shapes = shapes
-        self.audio_transform = audio_transform
-        self.in_memory = in_memory
-        self.instruments = instruments
 
-        # PREPARE HDF FILE
-
-        # Check if HDF file exists already
-        if not os.path.exists(self.hdf_dir):
-            # Create folder if it did not exist before
-            if not os.path.exists(hdf_dir):
-                os.makedirs(hdf_dir)
-
-            # Create HDF file
-            with h5py.File(self.hdf_dir, "w") as f:
-                f.attrs["sr"] = sr
-                f.attrs["channels"] = channels
-                f.attrs["instruments"] = instruments
-
-                print("Adding audio files to dataset (preprocessing)...")
-                for idx, example in enumerate(tqdm(dataset[partition])):
-                    # Load mix
-                    mix_audio, _ = load(example["mix"], sr=self.sr, mono=(self.channels == 1))
-
-                    source_audios = []
-                    for source in instruments:
-                        # In this case, read in audio and convert to target sampling rate
-                        source_audio, _ = load(example[source], sr=self.sr, mono=(self.channels == 1))
-                        source_audios.append(source_audio)
-                    source_audios = np.concatenate(source_audios, axis=0)
-                    assert(source_audios.shape[1] == mix_audio.shape[1])
-
-                    # Add to HDF5 file
-                    grp = f.create_group(str(idx))
-                    grp.create_dataset("inputs", shape=mix_audio.shape, dtype=mix_audio.dtype, data=mix_audio)
-                    grp.create_dataset("targets", shape=source_audios.shape, dtype=source_audios.dtype, data=source_audios)
-                    grp.attrs["length"] = mix_audio.shape[1]
-                    grp.attrs["target_length"] = source_audios.shape[1]
-
-        # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
-        with h5py.File(self.hdf_dir, "r") as f:
-            if f.attrs["sr"] != sr or \
-                    f.attrs["channels"] != channels or \
-                    list(f.attrs["instruments"]) != instruments:
-                raise ValueError(
-                    "Tried to load existing HDF file, but sampling rate and channel or instruments are not as expected. Did you load an out-dated HDF file?")
-
-        # HDF FILE READY
-
-        # SET SAMPLING POSITIONS
-
-        # Go through HDF and collect lengths of all audio files
-        with h5py.File(self.hdf_dir, "r") as f:
-            lengths = [f[str(song_idx)].attrs["target_length"] for song_idx in range(len(f))]
-
-            # Subtract input_size from lengths and divide by hop size to determine number of starting positions
-            lengths = [(l // self.shapes["output_frames"]) + 1 for l in lengths]
-
-        self.start_pos = SortedList(np.cumsum(lengths))
-        self.length = self.start_pos[-1]
-
-    def __getitem__(self, index):
-        # Open HDF5
-        if self.hdf_dataset is None:
-            driver = "core" if self.in_memory else None  # Load HDF5 fully into memory if desired
-            self.hdf_dataset = h5py.File(self.hdf_dir, 'r', driver=driver)
-
-        # Find out which slice of targets we want to read
-        audio_idx = self.start_pos.bisect_right(index)
-        if audio_idx > 0:
-            index = index - self.start_pos[audio_idx - 1]
-
-        # Check length of audio signal
-        audio_length = self.hdf_dataset[str(audio_idx)].attrs["length"]
-        target_length = self.hdf_dataset[str(audio_idx)].attrs["target_length"]
-
-        # Determine position where to start targets
-        if self.random_hops:
-            start_target_pos = np.random.randint(0, max(target_length - self.shapes["output_frames"] + 1, 1))
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None or not self.randomize:
+            # Single process data loading OR we are in random mode - then load all songs
+            audio_paths = self.audio_paths
         else:
-            # Map item index to sample position within song
-            start_target_pos = index * self.shapes["output_frames"]
+            # We're in a worker process and NOT in random mode - just load our partition of the whole set
+            # split workload
+            per_worker = int(
+                math.ceil(len(self.audio_paths) / float(worker_info.num_workers))
+            )
+            iter_start = worker_info.id * per_worker
+            iter_end = min(iter_start + per_worker, len(self.audio_paths))
+            audio_paths = [self.audio_paths[i] for i in range(iter_start, iter_end)]
 
-        # READ INPUTS
-        # Check front padding
-        start_pos = start_target_pos - self.shapes["output_start_frame"]
-        if start_pos < 0:
-            # Pad manually since audio signal was too short
-            pad_front = abs(start_pos)
-            start_pos = 0
-        else:
-            pad_front = 0
+        # Randomly permute list of songs
+        if self.randomize:
+            new_audios = [dict() for _ in range(len(audio_paths))]
+            # Random mixing of stems
+            paths_per_inst = {
+                inst: [
+                    audio_path[inst]
+                    for audio_path in audio_paths
+                    if inst in audio_path.keys()
+                ]
+                for inst in self.instruments
+            }
+            for inst, paths in paths_per_inst.items():
+                order = np.random.permutation(len(audio_paths))
+                for i, path in enumerate(paths):
+                    new_audios[order[i]][inst] = path
+            audio_paths = new_audios
 
-        # Check back padding
-        end_pos = start_target_pos - self.shapes["output_start_frame"] + self.shapes["input_frames"]
-        if end_pos > audio_length:
-            # Pad manually since audio signal was too short
-            pad_back = end_pos - audio_length
-            end_pos = audio_length
-        else:
-            pad_back = 0
+        random.shuffle(audio_paths)
 
-        # Read and return
-        audio = self.hdf_dataset[str(audio_idx)]["inputs"][:, start_pos:end_pos].astype(np.float32)
-        if pad_front > 0 or pad_back > 0:
-            audio = np.pad(audio, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
+        # Iterate over all examples
+        for paths in audio_paths:
+            # Load each stem
+            source_audios = {}
+            for inst, path in paths.items():
+                # In this case, read in audio and convert to target sampling rate
+                source_audio, _ = load(path, sr=self.sr, mono=(self.channels == 1))
+                source_audios[inst] = source_audio
 
-        targets = self.hdf_dataset[str(audio_idx)]["targets"][:, start_pos:end_pos].astype(np.float32)
-        if pad_front > 0 or pad_back > 0:
-            targets = np.pad(targets, [(0, 0), (pad_front, pad_back)], mode="constant", constant_values=0.0)
+            # Repeatedly extract random chunk from each stem and generate examples
+            for _ in range(self.chunks_per_audio):
+                chunked_source_audios = {}
+                if self.randomize:
+                    # Random position for each source independently
+                    for inst, audio in source_audios.items():
+                        chunk, chunk_start_pos = extract_random_window(
+                            audio, self.input_frames
+                        )
+                        chunked_source_audios[inst] = chunk
+                else:
+                    # Same position across all stems to keep them in sync
+                    start = None
+                    for inst, audio in source_audios.items():
+                        if start is None:
+                            chunk, start = extract_random_window(
+                                audio, self.input_frames
+                            )
+                            chunked_source_audios[inst] = chunk
+                        else:
+                            chunked_source_audios[inst] = audio[
+                                :, start : start + self.input_frames
+                            ]
 
-        targets = {inst : targets[idx*self.channels:(idx+1)*self.channels] for idx, inst in enumerate(self.instruments)}
+                # Data augmentation applied to stems
+                # TODO if self.data_augmentation: use pedalboard to reimplement spot pipeline, + mix-augment (mix same stems)?
 
-        if hasattr(self, "audio_transform") and self.audio_transform is not None:
-            audio, targets = self.audio_transform(audio, targets)
+                # Create mix as linear mix of stems
+                mix = np.sum(np.stack(list(chunked_source_audios.values())), 0)
+                mix = np.clip(mix, -1, 1)
+                # TODO detect clipping and prevent it in the first place?
 
-        return audio, targets
-
-    def __len__(self):
-        return self.length
+                # Return example, with each stem as target
+                # (mix: [channels, samples], targets: [channels * targets, samples]
+                targets = np.concatenate(
+                    [
+                        center_crop_audio(
+                            chunked_source_audios[inst], self.output_frames
+                        )
+                        for inst in self.instruments
+                    ]
+                )
+                yield mix, targets
