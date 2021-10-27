@@ -22,6 +22,9 @@ def center_crop_audio(audio, output_frames: int):
     assert (target_len - output_frames) % 2 == 0
     border_len = (target_len - output_frames) // 2
 
+    if border_len == 0:
+        return audio
+
     if len(audio.shape) == 1:
         return audio[border_len:-border_len]
     else:

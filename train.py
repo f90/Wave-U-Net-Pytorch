@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 import model.utils as model_utils
 import utils
-from data.dataset import SeparationDataset, center_crop_audio
+from data.dataset import SeparationDataset
 from data.musdb import get_musdb_folds
 from model.waveunet import Waveunet
 from test import evaluate, validate
@@ -22,24 +22,7 @@ def main(args):
     # torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
 
     # MODEL
-    num_features = (
-        [args.features * i for i in range(1, args.levels + 1)]
-        if args.feature_growth == "add"
-        else [args.features * 2 ** i for i in range(0, args.levels)]
-    )
-    target_outputs = int(args.output_size * args.sr)
-    model = Waveunet(
-        args.channels,
-        num_features,
-        args.channels,
-        args.instruments,
-        kernel_size=args.kernel_size,
-        target_output_size=target_outputs,
-        depth=args.depth,
-        strides=args.strides,
-        conv_type=args.conv_type,
-        res=args.res
-    )
+    model = Waveunet(args)
 
     if args.cuda:
         model = model_utils.DataParallel(model)
@@ -53,14 +36,18 @@ def main(args):
 
     ### DATASET
     musdb = get_musdb_folds(args.dataset_dir)
+    input_samples = int(round(args.input_size * args.sr))
+    input_samples = (input_samples // (args.strides ** args.levels)) * (
+        args.strides ** args.levels
+    )
     train_data = SeparationDataset(
         musdb["train"],
         args.instruments,
         args.sr,
         args.channels,
-        model.input_size,
-        model.output_size,
-        args.num_chunks_per_audio,
+        input_samples,
+        input_samples,
+        args.chunks_per_audio,
         randomize=True,
     )
     train_data = train_data.shuffle(buffer_size=args.shuffle_buffer_size)
@@ -70,9 +57,9 @@ def main(args):
         args.instruments,
         args.sr,
         args.channels,
-        model.input_size,
-        model.output_size,
-        args.num_chunks_per_audio,
+        input_samples,
+        input_samples,
+        args.chunks_per_audio,
         randomize=False,
     )
     test_data = SeparationDataset(
@@ -80,13 +67,11 @@ def main(args):
         args.instruments,
         args.sr,
         args.channels,
-        model.input_size,
-        model.output_size,
-        args.num_chunks_per_audio,
+        input_samples,
+        input_samples,
+        args.chunks_per_audio,
         randomize=False,
     )
-
-    # TODO add shuffle buffer somewhere for train!
 
     dataloader = torch.utils.data.DataLoader(
         train_data,
@@ -103,7 +88,7 @@ def main(args):
     elif args.loss == "L2":
         criterion = nn.MSELoss()
     else:
-        raise NotImplementedError("Couldn't find this loss!")
+        raise NotImplementedError(f"Couldn't find loss {args.loss}!")
 
     # Set up optimiser
     optimizer = Adam(params=model.parameters(), lr=args.lr)
@@ -121,7 +106,9 @@ def main(args):
 
     print("TRAINING START")
     while state["worse_epochs"] < args.patience:
-        print(f"Training epoch {state['epochs']} starting from iteration {state['step']}")
+        print(
+            f"Training epoch {state['epochs']} starting from iteration {state['step']}"
+        )
         model.train()
         np.random.seed()
 
@@ -145,7 +132,7 @@ def main(args):
                     # Audio summaries
                     writer.add_audio(
                         "input",
-                        torch.mean(center_crop_audio(mix[0], model.output_size), 0),
+                        torch.mean(mix[0], 0),
                         state["step"],
                         sample_rate=args.sr,
                     )
@@ -153,13 +140,19 @@ def main(args):
                     for i, inst in enumerate(args.instruments):
                         writer.add_audio(
                             inst + "_pred",
-                            torch.mean(outputs[0,i*args.channels:(i+1)*args.channels], 0),
+                            torch.mean(
+                                outputs[0, i * args.channels : (i + 1) * args.channels],
+                                0,
+                            ),
                             state["step"],
                             sample_rate=args.sr,
                         )
                         writer.add_audio(
                             inst + "_target",
-                            torch.mean(targets[0,i*args.channels:(i+1)*args.channels], 0),
+                            torch.mean(
+                                targets[0, i * args.channels : (i + 1) * args.channels],
+                                0,
+                            ),
                             state["step"],
                             sample_rate=args.sr,
                         )
@@ -247,7 +240,7 @@ if __name__ == "__main__":
         help="Number of data loader worker threads (default: 1)",
     )
     parser.add_argument(
-        "--features", type=int, default=32, help="Number of feature channels per layer"
+        "--features", type=int, default=24, help="Number of feature channels per layer"
     )
     parser.add_argument(
         "--log_dir", type=str, default="logs/waveunet", help="Folder to write logs into"
@@ -280,7 +273,7 @@ if __name__ == "__main__":
         "--min_lr",
         type=float,
         default=1e-6,
-        help="Minimum learning rate for the LR scheduler"
+        help="Minimum learning rate for the LR scheduler",
     )
     parser.add_argument("--batch_size", type=int, default=6, help="Batch size")
     parser.add_argument("--levels", type=int, default=6, help="Number of DS/US blocks")
@@ -298,9 +291,9 @@ if __name__ == "__main__":
         help="Filter width of kernels. Has to be an odd number",
     )
     parser.add_argument(
-        "--output_size", type=float, default=2.0, help="Output duration"
+        "--input_size", type=float, default=2.0, help="Input duration in seconds"
     )
-    parser.add_argument("--strides", type=int, default=4, help="Strides in Waveunet")
+    parser.add_argument("--strides", type=int, default=2, help="Strides in Waveunet")
     parser.add_argument(
         "--patience",
         type=int,
@@ -315,22 +308,28 @@ if __name__ == "__main__":
     )
     parser.add_argument("--loss", type=str, default="L1", help="L1 or L2")
     parser.add_argument(
-        "--conv_type",
+        "--norm",
         type=str,
         default="gn",
-        help="Type of convolution (normal, BN-normalised, GN-normalised): normal/bn/gn",
-    )
-    parser.add_argument(
-        "--res",
-        type=str,
-        default="fixed",
-        help="Resampling strategy: fixed sinc-based lowpass filtering or learned conv layer: fixed/learned",
+        help="Type of conv normalization (normal, BN-normalised, GN-normalised): normal/bn/gn",
     )
     parser.add_argument(
         "--feature_growth",
         type=str,
-        default="double",
+        default="add",
         help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)",
+    )
+    parser.add_argument(
+        "--chunks_per_audio",
+        type=int,
+        default=50,
+        help="Write an audio summary into Tensorboard logs every X training iterations",
+    )
+    parser.add_argument(
+        "--shuffle_buffer_size",
+        type=int,
+        default=10000,
+        help="Write an audio summary into Tensorboard logs every X training iterations",
     )
 
     args = parser.parse_args()

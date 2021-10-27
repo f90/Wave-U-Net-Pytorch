@@ -1,189 +1,183 @@
 import torch
 import torch.nn as nn
 
-from model.crop import centre_crop
-from model.resample import Resample1d
-from model.conv import ConvLayer
+from model.conv import ResidualConvBlock
+
 
 class UpsamplingBlock(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, conv_type, res):
+    def __init__(
+        self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, norm
+    ):
         super(UpsamplingBlock, self).__init__()
-        assert(stride > 1)
+        assert stride > 1
+        assert kernel_size % 2 == 1
 
-        # CONV 1 for UPSAMPLING
-        if res == "fixed":
-            self.upconv = Resample1d(n_inputs, 15, stride, transpose=True)
-        else:
-            self.upconv = ConvLayer(n_inputs, n_inputs, kernel_size, stride, conv_type, transpose=True)
+        # output size = (input_size - 1) * stride - 2*padding + kernel_size + output_padding,
+        # output size = stride*input_size
+        # set padding to same parameter as strided conv:
+        upconv_padding = (kernel_size - 1) // 2
+        # => output_padding = stride + 2*padding - kernel_size
+        self.upconv = nn.ConvTranspose1d(
+            n_inputs,
+            n_outputs,
+            kernel_size,
+            stride,
+            padding=(kernel_size - 1) // 2,
+            output_padding=stride + 2 * upconv_padding - kernel_size,
+        )
 
-        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_outputs, kernel_size, 1, conv_type)] +
-                                                [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type) for _ in range(depth - 1)])
-
-        # CONVS to combine high- with low-level information (from shortcut)
-        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_outputs + n_shortcut, n_outputs, kernel_size, 1, conv_type)] +
-                                                 [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type) for _ in range(depth - 1)])
+        self.combine_conv = nn.Conv1d(
+            n_outputs + n_shortcut,
+            n_outputs,
+            kernel_size,
+            padding="same",
+            padding_mode="reflect",
+        )
+        self.convs = nn.ModuleList(
+            [
+                ResidualConvBlock(n_outputs, n_outputs, kernel_size, norm)
+                for _ in range(depth)
+            ]
+        )
 
     def forward(self, x, shortcut):
         # UPSAMPLE HIGH-LEVEL FEATURES
         upsampled = self.upconv(x)
 
-        for conv in self.pre_shortcut_convs:
-            upsampled = conv(upsampled)
+        # Combine with low-level features: Concat with shortcut features and reduce feature channels
+        combined = self.combine_conv(torch.cat([upsampled, shortcut], dim=1))
 
-        # Prepare shortcut connection
-        combined = centre_crop(shortcut, upsampled)
-
-        # Combine high- and low-level features
-        for conv in self.post_shortcut_convs:
-            combined = conv(torch.cat([combined, centre_crop(upsampled, combined)], dim=1))
+        # Residual conv stack
+        for conv in self.convs:
+            combined = conv(combined)
         return combined
 
-    def get_output_size(self, input_size):
-        curr_size = self.upconv.get_output_size(input_size)
-
-        # Upsampling convs
-        for conv in self.pre_shortcut_convs:
-            curr_size = conv.get_output_size(curr_size)
-
-        # Combine convolutions
-        for conv in self.post_shortcut_convs:
-            curr_size = conv.get_output_size(curr_size)
-
-        return curr_size
 
 class DownsamplingBlock(nn.Module):
-    def __init__(self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, conv_type, res):
+    def __init__(
+        self, n_inputs, n_shortcut, n_outputs, kernel_size, stride, depth, norm
+    ):
         super(DownsamplingBlock, self).__init__()
-        assert(stride > 1)
+        assert stride > 1
+        assert kernel_size % 2 == 1
 
         self.kernel_size = kernel_size
         self.stride = stride
 
         # CONV 1
-        self.pre_shortcut_convs = nn.ModuleList([ConvLayer(n_inputs, n_shortcut, kernel_size, 1, conv_type)] +
-                                                [ConvLayer(n_shortcut, n_shortcut, kernel_size, 1, conv_type) for _ in range(depth - 1)])
+        self.prep_conv = ResidualConvBlock(n_inputs, n_shortcut, kernel_size, norm)
+        self.convs = nn.ModuleList(
+            [
+                ResidualConvBlock(n_shortcut, n_shortcut, kernel_size, norm)
+                for _ in range(depth)
+            ]
+        )
 
-        self.post_shortcut_convs = nn.ModuleList([ConvLayer(n_shortcut, n_outputs, kernel_size, 1, conv_type)] +
-                                                 [ConvLayer(n_outputs, n_outputs, kernel_size, 1, conv_type) for _ in
-                                                  range(depth - 1)])
-
-        # CONV 2 with decimation
-        if res == "fixed":
-            self.downconv = Resample1d(n_outputs, 15, stride) # Resampling with fixed-size sinc lowpass filter
-        else:
-            self.downconv = ConvLayer(n_outputs, n_outputs, kernel_size, stride, conv_type)
+        # CONV 2 with striding
+        # output size = floor(((input_size + 2x*padding - kernel_size) / stride) + 1)
+        # with padding = (kernel_size-1)/2 and odd kernel size: output size = floor(((input_size - 1)/stride)+1)
+        self.downconv = nn.Conv1d(
+            n_shortcut,
+            n_outputs,
+            kernel_size,
+            stride=stride,
+            padding=(kernel_size - 1) // 2,
+            padding_mode="reflect",
+        )
 
     def forward(self, x):
         # PREPARING SHORTCUT FEATURES
-        shortcut = x
-        for conv in self.pre_shortcut_convs:
+        shortcut = self.prep_conv(x)
+        for conv in self.convs:
             shortcut = conv(shortcut)
 
-        # PREPARING FOR DOWNSAMPLING
         out = shortcut
-        for conv in self.post_shortcut_convs:
-            out = conv(out)
-
         # DOWNSAMPLING
         out = self.downconv(out)
 
         return out, shortcut
 
-    def get_input_size(self, output_size):
-        curr_size = self.downconv.get_input_size(output_size)
-
-        for conv in reversed(self.post_shortcut_convs):
-            curr_size = conv.get_input_size(curr_size)
-
-        for conv in reversed(self.pre_shortcut_convs):
-            curr_size = conv.get_input_size(curr_size)
-        return curr_size
 
 class Waveunet(nn.Module):
-    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, conv_type, res, separate=False, depth=1, strides=2):
+    def __init__(self, args):
         super(Waveunet, self).__init__()
 
-        self.num_levels = len(num_channels)
-        self.strides = strides
-        self.kernel_size = kernel_size
-        self.num_inputs = num_inputs
-        self.num_outputs = num_outputs
-        self.depth = depth
-        self.instruments = instruments
-        self.separate = separate
+        self.num_levels = args.levels
+        self.strides = args.strides
+        self.kernel_size = args.kernel_size
+        self.input_channels = args.channels
+        self.output_channels = self.input_channels
+        self.depth = args.depth
+        self.instruments = args.instruments
+        self.norm = args.norm
 
-        # Only odd filter kernels allowed
-        assert(kernel_size % 2 == 1)
+        self.num_features = (
+            [args.features * i for i in range(1, args.levels + 1)]
+            if args.feature_growth == "add"
+            else [args.features * 2 ** i for i in range(0, args.levels)]
+        )
 
+        # Input conv to get an initial number of feature channels
+        self.input_conv = nn.Conv1d(
+            self.input_channels,
+            self.num_features[0],
+            self.kernel_size,
+            padding="same",
+            padding_mode="reflect",
+        )
+
+        # Downsampling blocks
         self.downsampling_blocks = nn.ModuleList()
-        self.upsampling_blocks = nn.ModuleList()
-
         for i in range(self.num_levels - 1):
-            in_ch = num_inputs if i == 0 else num_channels[i]
-
             self.downsampling_blocks.append(
-                DownsamplingBlock(in_ch, num_channels[i], num_channels[i+1], kernel_size, strides, depth, conv_type, res))
+                DownsamplingBlock(
+                    self.num_features[i],
+                    self.num_features[i],
+                    self.num_features[i + 1],
+                    self.kernel_size,
+                    self.strides,
+                    self.depth,
+                    self.norm,
+                )
+            )
 
+        # Upsampling blocks
+        self.upsampling_blocks = nn.ModuleList()
         for i in range(0, self.num_levels - 1):
             self.upsampling_blocks.append(
-                UpsamplingBlock(num_channels[-1-i], num_channels[-2-i], num_channels[-2-i], kernel_size, strides, depth, conv_type, res))
+                UpsamplingBlock(
+                    self.num_features[-1 - i],
+                    self.num_features[-2 - i],
+                    self.num_features[-2 - i],
+                    self.kernel_size,
+                    self.strides,
+                    self.depth,
+                    self.norm,
+                )
+            )
 
-        self.bottlenecks = nn.ModuleList(
-            [ConvLayer(num_channels[-1], num_channels[-1], kernel_size, 1, conv_type) for _ in range(depth)])
+        self.bottleneck = nn.ModuleList(
+            [
+                ResidualConvBlock(
+                    self.num_features[-1],
+                    self.num_features[-1],
+                    self.kernel_size,
+                    self.norm,
+                )
+                for _ in range(self.depth)
+            ]
+        )
 
         # Output conv
-        outputs = num_outputs if separate else num_outputs * len(instruments)
-        self.output_conv = nn.Conv1d(num_channels[0], outputs, 1)
-
-        self.set_output_size(target_output_size)
-
-    def set_output_size(self, target_output_size):
-        self.target_output_size = target_output_size
-
-        self.input_size, self.output_size = self.check_padding(target_output_size)
-        print("Using valid convolutions with " + str(self.input_size) + " inputs and " + str(self.output_size) + " outputs")
-
-        assert((self.input_size - self.output_size) % 2 == 0)
-        self.shapes = {"output_start_frame" : (self.input_size - self.output_size) // 2,
-                       "output_end_frame" : (self.input_size - self.output_size) // 2 + self.output_size,
-                       "output_frames" : self.output_size,
-                       "input_frames" : self.input_size}
-
-    def check_padding(self, target_output_size):
-        # Ensure number of outputs covers a whole number of cycles so each output in the cycle is weighted equally during training
-        bottleneck = 1
-
-        while True:
-            out = self.check_padding_for_bottleneck(bottleneck, target_output_size)
-            if out is not False:
-                return out
-            bottleneck += 1
-
-    def check_padding_for_bottleneck(self, bottleneck, target_output_size):
-        try:
-            curr_size = bottleneck
-            for idx, block in enumerate(self.upsampling_blocks):
-                curr_size = block.get_output_size(curr_size)
-            output_size = curr_size
-
-            # Bottleneck-Conv
-            curr_size = bottleneck
-            for block in reversed(self.bottlenecks):
-                curr_size = block.get_input_size(curr_size)
-            for idx, block in enumerate(reversed(self.downsampling_blocks)):
-                curr_size = block.get_input_size(curr_size)
-
-            assert(output_size >= target_output_size)
-            return curr_size, output_size
-        except AssertionError as e:
-            return False
+        self.output_conv = nn.Conv1d(
+            self.num_features[0], self.output_channels * len(self.instruments), 1
+        )
 
     def forward(self, mix):
-        curr_input_size = mix.shape[-1]
-        assert(curr_input_size == self.input_size) # User promises to feed the proper input himself, to get the pre-calculated (NOT the originally desired) output size
-
         shortcuts = []
-        out = mix
+
+        # Input convolution
+        out = self.input_conv(mix)
 
         # DOWNSAMPLING BLOCKS
         for block in self.downsampling_blocks:
@@ -191,7 +185,7 @@ class Waveunet(nn.Module):
             shortcuts.append(short)
 
         # BOTTLENECK CONVOLUTION
-        for conv in self.bottlenecks:
+        for conv in self.bottleneck:
             out = conv(out)
 
         # UPSAMPLING BLOCKS
