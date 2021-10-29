@@ -241,7 +241,7 @@ if __name__ == "__main__":
         help="Number of data loader worker threads (default: 1)",
     )
     parser.add_argument(
-        "--features", type=int, default=24, help="Number of feature channels per layer"
+        "--features", type=int, default=16, help="Number of feature channels per layer"
     )
     parser.add_argument(
         "--log_dir", type=str, default="logs/waveunet", help="Folder to write logs into"
@@ -276,10 +276,10 @@ if __name__ == "__main__":
         default=1e-6,
         help="Minimum learning rate for the LR scheduler",
     )
-    parser.add_argument("--batch_size", type=int, default=6, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
     parser.add_argument("--levels", type=int, default=6, help="Number of DS/US blocks")
     parser.add_argument(
-        "--depth", type=int, default=1, help="Number of convs per block"
+        "--depth", type=int, default=2, help="Number of convs per block"
     )
     parser.add_argument("--sr", type=int, default=44100, help="Sampling rate")
     parser.add_argument(
@@ -288,7 +288,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--kernel_size",
         type=int,
-        default=5,
+        default=3,
         help="Filter width of kernels. Has to be an odd number",
     )
     parser.add_argument(
@@ -311,13 +311,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--norm",
         type=str,
-        default="gn",
+        default="bn",
         help="Type of conv normalization (normal, BN-normalised, GN-normalised): normal/bn/gn",
     )
     parser.add_argument(
         "--feature_growth",
         type=str,
-        default="add",
+        default="double",
         help="How the features in each layer should grow, either (add) the initial number of features each time, or multiply by 2 (double)",
     )
     parser.add_argument(
