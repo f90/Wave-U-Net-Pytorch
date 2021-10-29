@@ -49,6 +49,7 @@ def main(args):
         input_samples,
         args.chunks_per_audio,
         randomize=True,
+        augment=True,
     )
     train_data = train_data.shuffle(buffer_size=args.shuffle_buffer_size)
 

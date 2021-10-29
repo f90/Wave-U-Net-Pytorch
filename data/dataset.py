@@ -4,6 +4,8 @@ from typing import List, Dict
 
 import numpy as np
 import torch
+from pedalboard import Pedalboard
+from pedalboard_native import Gain, Reverb
 from torch.utils.data import Dataset, IterableDataset
 
 from data.utils import load
@@ -49,6 +51,51 @@ def extract_random_window(audio, chunk_length: int):
         return audio[:, start : start + chunk_length], start
 
 
+def maybe_add_effect(pedal_effects, effect, aug_apply_prob):
+    if np.random.uniform(0, 1) <= aug_apply_prob:
+        pedal_effects.append(effect)
+
+
+def random_augment(audio, sr, aug_apply_prob: float = 0.25):
+    # Make a Pedalboard object, containing multiple plugins:
+    pedal_effects = []
+    maybe_add_effect(
+        pedal_effects, Gain(gain_db=np.random.uniform(-20, 0)), aug_apply_prob
+    )
+    maybe_add_effect(
+        pedal_effects, Reverb(room_size=np.random.uniform(0.1, 0.9)), aug_apply_prob
+    )
+    board = Pedalboard(
+        pedal_effects,
+        sample_rate=sr,
+    )
+
+    # Run the audio through this pedalboard!
+    effected = board(audio)
+
+    # TODO pitch shifting makes us lose audio samples
+    """
+    if np.random.uniform(0, 1) <= aug_apply_prob:
+        # create a transformer
+        tfm = sox.Transformer()
+        # shift the pitch up by 2 semitones
+        tfm.pitch(np.random.uniform(-6, 6))
+        # transform an in-memory array and return an array
+        out = tfm.build_array(input_array=effected.T, sample_rate_in=sr).T
+        if out.shape != effected.shape:
+            if out.shape[1] > effected.shape[1]:
+                assert out.shape[1] - effected.shape[1] < 5
+                out = out[:, : effected.shape[1]]
+            else:
+                raise ValueError(
+                    f"Shape of audio {effected.shape} was affected by pitch shifting and is now {out.shape}"
+                )
+        effected = out
+    """
+
+    return effected
+
+
 class SeparationDataset(IterableDataset):
     def __init__(
         self,
@@ -60,6 +107,7 @@ class SeparationDataset(IterableDataset):
         output_frames: int,
         chunks_per_audio: int,
         randomize: bool = False,
+        augment: bool = False,
     ):
         self.audio_paths = audio_paths
         self.instruments = instruments
@@ -70,6 +118,7 @@ class SeparationDataset(IterableDataset):
         self.chunks_per_audio = chunks_per_audio
         self.sr = sr
         self.channels = channels
+        self.augment = augment
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -140,7 +189,11 @@ class SeparationDataset(IterableDataset):
                             ]
 
                 # Data augmentation applied to stems
-                # TODO if self.data_augmentation: use pedalboard to reimplement spot pipeline, + mix-augment (mix same stems)?
+                if self.augment:
+                    for inst in chunked_source_audios.keys():
+                        chunked_source_audios[inst] = random_augment(
+                            chunked_source_audios[inst], self.sr
+                        )
 
                 # Create mix as linear mix of stems
                 mix = np.sum(np.stack(list(chunked_source_audios.values())), 0)
