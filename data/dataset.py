@@ -11,26 +11,18 @@ from torch.utils.data import Dataset, IterableDataset
 from data.utils import load
 
 
-def center_crop_audio(audio, output_frames: int):
-    if len(audio.shape) == 1:
-        target_len = audio.shape[0]
-    elif len(audio.shape) == 2:
-        target_len = audio.shape[1]
-    else:
-        raise SyntaxError(
-            f"Wrong input audio shape {audio.shape}, expected 1 or 2 dimensions!"
-        )
+def center_crop_audio(audio, output_crop: float):
+    assert len(audio.shape) <= 3
+    target_len = audio.shape[-1]
 
-    assert (target_len - output_frames) % 2 == 0
-    border_len = (target_len - output_frames) // 2
+    assert 0.0 <= output_crop < 0.5
+    border_len = int(round(output_crop * target_len))
+    assert 2 * border_len < target_len
 
     if border_len == 0:
         return audio
 
-    if len(audio.shape) == 1:
-        return audio[border_len:-border_len]
-    else:
-        return audio[:, border_len:-border_len]
+    return audio[..., border_len:-border_len]
 
 
 def extract_random_window(audio, chunk_length: int):
@@ -104,7 +96,7 @@ class SeparationDataset(IterableDataset):
         sr: int,
         channels: int,
         input_frames: int,
-        output_frames: int,
+        output_crop: float,
         chunks_per_audio: int,
         randomize: bool = False,
         augment: bool = False,
@@ -114,7 +106,7 @@ class SeparationDataset(IterableDataset):
         self.randomize = randomize
 
         self.input_frames = input_frames
-        self.output_frames = output_frames
+        self.output_crop = output_crop
         self.chunks_per_audio = chunks_per_audio
         self.sr = sr
         self.channels = channels
@@ -204,9 +196,7 @@ class SeparationDataset(IterableDataset):
                 # (mix: [channels, samples], targets: [channels * targets, samples]
                 targets = np.concatenate(
                     [
-                        center_crop_audio(
-                            chunked_source_audios[inst], self.output_frames
-                        )
+                        center_crop_audio(chunked_source_audios[inst], self.output_crop)
                         for inst in self.instruments
                     ]
                 )

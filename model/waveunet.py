@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from data.dataset import center_crop_audio
 from model.conv import ResidualConvBlock
 
 
@@ -110,6 +111,7 @@ class Waveunet(nn.Module):
         self.depth = args.depth
         self.instruments = args.instruments
         self.norm = args.norm
+        self.output_crop = args.output_crop
 
         self.num_features = (
             [args.features * i for i in range(1, args.levels + 1)]
@@ -196,4 +198,8 @@ class Waveunet(nn.Module):
         out = self.output_conv(out)
         if not self.training:  # At test time clip predictions to valid amplitude range
             out = out.clamp(min=-1.0, max=1.0)
+
+        # Center-crop output if we want to ignore predictions near output window borders
+        out = center_crop_audio(out, self.output_crop)
+
         return out

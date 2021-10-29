@@ -46,7 +46,7 @@ def main(args):
         args.sr,
         args.channels,
         input_samples,
-        input_samples,
+        args.output_crop,
         args.chunks_per_audio,
         randomize=True,
         augment=True,
@@ -59,7 +59,7 @@ def main(args):
         args.sr,
         args.channels,
         input_samples,
-        input_samples,
+        args.output_crop,
         args.chunks_per_audio,
         randomize=False,
     )
@@ -69,7 +69,7 @@ def main(args):
         args.sr,
         args.channels,
         input_samples,
-        input_samples,
+        args.output_crop,
         args.chunks_per_audio,
         randomize=False,
     )
@@ -293,6 +293,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--input_size", type=float, default=2.0, help="Input duration in seconds"
+    )
+    parser.add_argument(
+        "--output_crop",
+        type=float,
+        default=0.0,
+        help="Percentage of output window that should be cropped at each border: [0,0.5) range",
     )
     parser.add_argument("--strides", type=int, default=2, help="Strides in Waveunet")
     parser.add_argument(
