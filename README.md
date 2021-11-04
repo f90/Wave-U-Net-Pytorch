@@ -1,9 +1,10 @@
 # Wave-U-Net (Pytorch)
+<a href="https://replicate.ai/f90/wave-u-net-pytorch"><img src="https://img.shields.io/static/v1?label=Replicate&message=Demo and Docker Image&color=darkgreen" height=20></a>
 
 Improved version of the [Wave-U-Net](https://arxiv.org/abs/1806.03185) for audio source separation, implemented in Pytorch.
 
 Click [here](www.github.com/f90/Wave-U-Net) for the original Wave-U-Net implementation in Tensorflow.
-You can find more information about the model and results there as well. 
+You can find more information about the model and results there as well.
 
 # Improvements
 
@@ -24,7 +25,9 @@ GPU strongly recommended to avoid very long training times.
 System requirements:
 * Linux-based OS
 * Python 3.6
+
 * [libsndfile](http://mega-nerd.com/libsndfile/) 
+
 * [ffmpeg](https://www.ffmpeg.org/)
 * CUDA 10.1 for GPU usage
 
@@ -68,6 +71,7 @@ You can of course use your own datasets for training, but for this you would nee
 # Training the models
 
 To train a Wave-U-Net, the basic command to use is
+
 ```
 python3.6 train.py --dataset_dir /PATH/TO/MUSDB18HQ 
 ```
@@ -86,7 +90,7 @@ After training, the model is evaluated on the MUSDB18HQ test set, and SDR/SIR/SA
 
 # <a name="test"></a> Test trained models on songs!
 
-We provide the default model in a pre-trained form as download so you can separate your own songs right away. 
+We provide the default model in a pre-trained form as download so you can separate your own songs right away.
 
 ## Downloading our pretrained models
 
