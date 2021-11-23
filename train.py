@@ -19,10 +19,10 @@ from test import evaluate, validate
 
 
 def main(args):
-    # torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
+    writer = SummaryWriter(args.log_dir)
 
     # MODEL
-    model = Waveunet(args)
+    model = Waveunet(args, writer)
 
     if args.cuda:
         model = model_utils.DataParallel(model)
@@ -31,8 +31,6 @@ def main(args):
 
     print("model: ", model)
     print("parameter count: ", str(sum(p.numel() for p in model.parameters())))
-
-    writer = SummaryWriter(args.log_dir)
 
     ### DATASET
     musdb = get_musdb_folds(args.dataset_dir)
@@ -121,7 +119,7 @@ def main(args):
 
                 # Compute loss
                 optimizer.zero_grad()
-                outputs = model(mix)
+                outputs = model(mix, state["step"])
                 loss = criterion(outputs, targets)
                 loss.backward()
                 optimizer.step()

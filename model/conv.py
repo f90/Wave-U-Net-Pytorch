@@ -34,6 +34,9 @@ class ResidualConvBlock(nn.Module):
                 )
             # Add you own types of variations here!
 
+            # Non-linear activation
+            self.main_ops.append(nn.LeakyReLU(0.01))
+
             # CONV
             self.main_ops.append(
                 nn.Conv1d(
@@ -44,21 +47,20 @@ class ResidualConvBlock(nn.Module):
                     padding_mode="reflect",
                 )
             )
-            # Non-linear activation
-            self.main_ops.append(nn.LeakyReLU(0.01))
+
         self.main_ops = nn.ModuleList(self.main_ops)
 
-        self.residual_conv = nn.Conv1d(
-            n_inputs,
-            n_outputs,
-            kernel_size,
-            padding="same",
-            padding_mode="reflect",
-        )
+        if n_inputs != n_outputs:
+            self.residual_conv = nn.Conv1d(n_inputs, n_outputs, 1, padding=0)
+        else:
+            self.residual_conv = None
 
     def forward(self, x):
-        main_out = x
+        out = x
         for op in self.main_ops:
-            main_out = op(main_out)
-        residual = self.residual_conv(x)
-        return main_out + residual
+            out = op(out)
+
+        if self.residual_conv:
+            out = out + self.residual_conv(x)
+
+        return out

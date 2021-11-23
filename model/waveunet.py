@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 
 from data.dataset import center_crop_audio
 from model.conv import ResidualConvBlock
@@ -100,7 +101,7 @@ class DownsamplingBlock(nn.Module):
 
 
 class Waveunet(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, logger: SummaryWriter):
         super(Waveunet, self).__init__()
 
         self.num_levels = args.levels
@@ -112,6 +113,8 @@ class Waveunet(nn.Module):
         self.instruments = args.instruments
         self.norm = args.norm
         self.output_crop = args.output_crop
+
+        self.logger = logger
 
         self.num_features = (
             [args.features * i for i in range(1, args.levels + 1)]
@@ -175,15 +178,22 @@ class Waveunet(nn.Module):
             self.num_features[0], self.output_channels * len(self.instruments), 1
         )
 
-    def forward(self, mix):
+    def forward(self, mix, step=None):
         shortcuts = []
 
         # Input convolution
         out = self.input_conv(mix)
 
         # DOWNSAMPLING BLOCKS
-        for block in self.downsampling_blocks:
+        for idx, block in enumerate(self.downsampling_blocks):
             out, short = block(out)
+            if step and step % 100 == 0:
+                self.logger.add_scalar(
+                    f"ds_{idx}_l2",
+                    torch.mean(torch.norm(out.view(out.shape[0], -1), p=2, dim=1)),
+                    global_step=step,
+                )
+                self.logger.add_histogram(f"ds_{idx}_hist", out, global_step=step)
             shortcuts.append(short)
 
         # BOTTLENECK CONVOLUTION
@@ -193,6 +203,12 @@ class Waveunet(nn.Module):
         # UPSAMPLING BLOCKS
         for idx, block in enumerate(self.upsampling_blocks):
             out = block(out, shortcuts[-1 - idx])
+            if step and step % 100 == 0:
+                self.logger.add_scalar(
+                    f"us_{idx}_l2",
+                    torch.mean(torch.norm(out.view(out.shape[0], -1), p=2, dim=1)),
+                    global_step=step,
+                )
 
         # OUTPUT CONV
         out = self.output_conv(out)
@@ -203,3 +219,6 @@ class Waveunet(nn.Module):
         out = center_crop_audio(out, self.output_crop)
 
         return out
+
+
+# TODO Conditioned Wave-U-Net
