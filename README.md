@@ -97,6 +97,10 @@ We provide the default model in a pre-trained form as download so you can separa
 Download our pretrained model [here](https://www.dropbox.com/s/r374hce896g4xlj/models.7z?dl=1).
 Extract the archive into the ``checkpoints`` subfolder in this repository, so that you have one subfolder for each model (e.g. ``REPO/checkpoints/waveunet``)
 
+If you have Docker installed, you can run this script to download the weights from [Replicate](https://replicate.com/f90/wave-u-net-pytorch):
+
+    $ script/download-weights
+
 ## Run pretrained model
 
 To apply our pretrained model to any of your own songs, simply point to its audio file path using the ``input_path`` parameter:
