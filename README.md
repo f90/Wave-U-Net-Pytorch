@@ -1,5 +1,5 @@
 # Wave-U-Net (Pytorch)
-<a href="https://replicate.ai/f90/wave-u-net-pytorch"><img src="https://img.shields.io/static/v1?label=Replicate&message=Demo and Docker Image&color=darkgreen" height=20></a>
+<a href="https://replicate.com/f90/wave-u-net-pytorch"><img src="https://replicate.com/f90/wave-u-net-pytorch/badge"></a>
 
 Improved version of the [Wave-U-Net](https://arxiv.org/abs/1806.03185) for audio source separation, implemented in Pytorch.
 
