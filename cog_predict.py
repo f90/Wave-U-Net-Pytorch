@@ -1,16 +1,24 @@
+import argparse
 import os
-import cog
 import tempfile
 import zipfile
-from pathlib import Path
-import argparse
+
+from cog import BasePredictor, Input, Path, BaseModel
+
 import data.utils
 import model.utils as model_utils
-from test import predict_song
 from model.waveunet import Waveunet
+from test import predict_song
 
 
-class waveunetPredictor(cog.Predictor):
+class Output(BaseModel):
+    bass: Path
+    drums: Path
+    other: Path
+    vocals: Path
+
+
+class Predictor(BasePredictor):
     def setup(self):
         """Init wave u net model"""
         parser = argparse.ArgumentParser()
@@ -112,7 +120,7 @@ class waveunetPredictor(cog.Predictor):
         )
 
         if args.cuda:
-            self.model = model_utils.DataParallel(model)
+            self.model = model_utils.DataParallel(self.model)
             print("move model to gpu")
             self.model.cuda()
 
@@ -120,25 +128,16 @@ class waveunetPredictor(cog.Predictor):
         state = model_utils.load_model(self.model, None, args.load_model, args.cuda)
         print("Step", state["step"])
 
-    @cog.input("input", type=Path, help="audio mixture path")
-    def predict(self, input):
+    def predict(self, mix: Path = Input(description="audio mixture path")) -> Output:
         """Separate tracks from input mixture audio"""
 
-        out_path = Path(tempfile.mkdtemp())
-        zip_path = Path(tempfile.mkdtemp()) / "output.zip"
+        tmpdir = Path(tempfile.mkdtemp())
 
-        preds = predict_song(self.args, input, self.model)
-
-        out_names = []
+        preds = predict_song(self.args, mix, self.model)
+        output = {}
         for inst in preds.keys():
-            temp_n = os.path.join(
-                str(out_path), os.path.basename(str(input)) + "_" + inst + ".wav"
-            )
-            data.utils.write_wav(temp_n, preds[inst], self.args.sr)
-            out_names.append(temp_n)
+            path = tmpdir / (inst + ".wav")
+            data.utils.write_wav(path, preds[inst], self.args.sr)
+            output[inst] = path
 
-        with zipfile.ZipFile(str(zip_path), "w") as zf:
-            for i in out_names:
-                zf.write(str(i))
-
-        return zip_path
+        return Output(**output)
