@@ -47,7 +47,7 @@ def main(args):
         args.output_crop,
         args.chunks_per_audio,
         randomize=True,
-        augment=True,
+        augment=args.augment,
     )
     train_data = train_data.shuffle(buffer_size=args.shuffle_buffer_size)
 
@@ -334,7 +334,13 @@ if __name__ == "__main__":
         "--shuffle_buffer_size",
         type=int,
         default=10000,
-        help="Write an audio summary into Tensorboard logs every X training iterations",
+        help="Size of shuffle buffer that ensures samples from a batch come from different songs",
+    )
+    parser.add_argument(
+        "--augment",
+        type=int,
+        default=1,
+        help="Set to 1 to enable training data augmentation, 0 to disable",
     )
 
     args = parser.parse_args()
