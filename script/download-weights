@@ -1,0 +1,3 @@
+#!/bin/bash
+id=$(docker create r8.im/f90/wave-u-net-pytorch)
+docker cp $id:/src/checkpoints ./

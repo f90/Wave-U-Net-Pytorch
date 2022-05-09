@@ -1,5 +1,5 @@
 build:
-  python_version: "3.6"
+  python_version: "3.7"
   gpu: false
   python_packages:
     - future==0.18.2
@@ -17,4 +17,4 @@ build:
   system_packages:
     - libsndfile-dev
     - ffmpeg
-predict: "cog_predict.py:waveunetPredictor"
+predict: "cog_predict.py:Predictor"
