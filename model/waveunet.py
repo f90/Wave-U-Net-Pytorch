@@ -34,8 +34,9 @@ class UpsamplingBlock(nn.Module):
         combined = centre_crop(shortcut, upsampled)
 
         # Combine high- and low-level features
+        combined = torch.cat([combined, centre_crop(upsampled, combined)], dim=1)
         for conv in self.post_shortcut_convs:
-            combined = conv(torch.cat([combined, centre_crop(upsampled, combined)], dim=1))
+            combined = conv(combined)
         return combined
 
     def get_output_size(self, input_size):
