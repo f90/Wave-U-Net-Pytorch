@@ -100,9 +100,10 @@ class DownsamplingBlock(nn.Module):
         return curr_size
 
 class Waveunet(nn.Module):
-    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, conv_type, res, separate=False, depth=1, strides=2):
+    def __init__(self, num_inputs, num_channels, num_outputs, instruments, kernel_size, target_output_size, conv_type, res, separate=False, depth=1, strides=2, device=None):
         super(Waveunet, self).__init__()
 
+        self.device = device if device is not None else torch.device('cpu')
         self.num_levels = len(num_channels)
         self.strides = strides
         self.kernel_size = kernel_size
@@ -111,7 +112,7 @@ class Waveunet(nn.Module):
         self.depth = depth
         self.instruments = instruments
         self.separate = separate
-
+        self.to(self.device)
         # Only odd filter kernels allowed
         assert(kernel_size % 2 == 1)
 
@@ -195,9 +196,10 @@ class Waveunet(nn.Module):
         :param module: Network module to be used for prediction
         :return: Source estimates
         '''
+        x = x.to(self.device)
         shortcuts = []
         out = x
-
+        #print(x.shape)
         # DOWNSAMPLING BLOCKS
         for block in module.downsampling_blocks:
             out, short = block(out)
