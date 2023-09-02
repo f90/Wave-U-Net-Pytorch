@@ -13,13 +13,13 @@ def save_model(model, optimizer, state, path):
     }, path)
 
 
-def load_model(model, optimizer, path, cuda):
+
+def load_model(model, optimizer, path, device):
     if isinstance(model, torch.nn.DataParallel):
         model = model.module  # load state dict of wrapped module
-    if cuda:
-        checkpoint = torch.load(path)
-    else:
-        checkpoint = torch.load(path, map_location='cpu')
+        
+    checkpoint = torch.load(path, map_location=device)
+
     try:
         model.load_state_dict(checkpoint['model_state_dict'])
     except:
@@ -32,8 +32,13 @@ def load_model(model, optimizer, path, cuda):
                 k = k[len(prefix):]
             model_state_dict_fixed[k] = v
         model.load_state_dict(model_state_dict_fixed)
+
+    # Ensure the model is moved to the correct device
+    model.to(device)
+
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
     if 'state' in checkpoint:
         state = checkpoint['state']
     else:

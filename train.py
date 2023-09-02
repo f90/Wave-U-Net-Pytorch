@@ -22,19 +22,21 @@ from model.waveunet import Waveunet
 
 def main(args):
     #torch.backends.cudnn.benchmark=True # This makes dilated conv much faster for CuDNN 7.5
-
+    device = "cuda" if args.cuda else "cpu"
+    if args.mps:
+            device = torch.device('mps')
     # MODEL
     num_features = [args.features*i for i in range(1, args.levels+1)] if args.feature_growth == "add" else \
                    [args.features*2**i for i in range(0, args.levels)]
     target_outputs = int(args.output_size * args.sr)
     model = Waveunet(args.channels, num_features, args.channels, args.instruments, kernel_size=args.kernel_size,
-                     target_output_size=target_outputs, depth=args.depth, strides=args.strides,
-                     conv_type=args.conv_type, res=args.res, separate=args.separate)
+                 target_output_size=target_outputs, depth=args.depth, strides=args.strides,
+                 conv_type=args.conv_type, res=args.res, separate=args.separate, device=device).to(device)
 
-    if args.cuda:
+    if args.cuda or args.mps:
         model = model_utils.DataParallel(model)
-        print("move model to gpu")
-        model.cuda()
+        print(f"move model to {device}")
+        model.to(device)
 
     print('model: ', model)
     print('parameter count: ', str(sum(p.numel() for p in model.parameters())))
@@ -75,7 +77,7 @@ def main(args):
     # LOAD MODEL CHECKPOINT IF DESIRED
     if args.load_model is not None:
         print("Continuing training full model from checkpoint " + str(args.load_model))
-        state = model_utils.load_model(model, optimizer, args.load_model, args.cuda)
+        state = model_utils.load_model(model, optimizer, args.load_model, device)
 
     print('TRAINING START')
     while state["worse_epochs"] < args.patience:
@@ -85,10 +87,9 @@ def main(args):
         with tqdm(total=len(train_data) // args.batch_size) as pbar:
             np.random.seed()
             for example_num, (x, targets) in enumerate(dataloader):
-                if args.cuda:
-                    x = x.cuda()
-                    for k in list(targets.keys()):
-                        targets[k] = targets[k].cuda()
+                x = x.to(device)
+                for k in list(targets.keys()):
+                    targets[k] = targets[k].to(device)
 
                 t = time.time()
 
@@ -139,13 +140,12 @@ def main(args):
         print("Saving model...")
         model_utils.save_model(model, optimizer, state, checkpoint_path)
 
-
     #### TESTING ####
     # Test loss
     print("TESTING")
 
     # Load best model based on validation loss
-    state = model_utils.load_model(model, None, state["best_checkpoint"], args.cuda)
+    state = model_utils.load_model(model, None, state["best_checkpoint"], device)
     test_loss = validate(args, model, criterion, test_data)
     print("TEST FINISHED: LOSS: " + str(test_loss))
     writer.add_scalar("test_loss", test_loss, state["step"])
@@ -176,6 +176,8 @@ if __name__ == '__main__':
                         help="List of instruments to separate (default: \"bass drums other vocals\")")
     parser.add_argument('--cuda', action='store_true',
                         help='Use CUDA (default: False)')
+    parser.add_argument('--mps', action='store_true',
+                        help='Use MPS on M1 Mac (default: False)')
     parser.add_argument('--num_workers', type=int, default=1,
                         help='Number of data loader worker threads (default: 1)')
     parser.add_argument('--features', type=int, default=32,
